@@ -1,28 +1,21 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-console.log('Firebase config loaded, initializing Firestore with ID:', firebaseConfig.firestoreDatabaseId);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth();
 
-// Test connection
-async function testConnection() {
-  console.log('Testing Firestore connection...');
-  try {
-    // We remove the specific test/connection call to avoid permission errors
-    // as it is not strictly required for application functionality.
-    console.log('Firestore connection established.');
-  } catch (error) {
-    console.error('Firestore connection test failed:', error);
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
+// Enable offline persistence
+enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+        console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+    } else if (err.code === 'unimplemented') {
+        console.warn('The current browser does not support all of the persistence features.');
     }
-  }
-}
-testConnection();
+});
+
+export const auth = getAuth();
 
 export enum OperationType {
   CREATE = 'create',
