@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-carbon-950: #0a0c0f;
+  --color-carbon-900: #161a20;
+  --color-carbon-800: #21262e;
+  --color-carbon-700: #2d333e;
+  --color-laser-indigo: #818CF8;
+}
+
+@layer base {
+  body {
+    @apply bg-carbon-950 text-white antialiased selection:bg-laser-indigo/30 m-0 p-0;
+  }
+}
+
+.premium-glass {
+  @apply bg-carbon-900 border border-white/30 shadow-[0_16px_48px_rgba(0,0,0,0.8)];
+}
+
+.industrial-border {
+  @apply border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)];
+}
+
+.text-glow {
+  @apply drop-shadow-[0_0_15px_rgba(255,255,255,0.6)];
+}
+
+.active-glow {
+  @apply shadow-[0_0_35px_rgba(129,140,248,0.7)] border-white;
+}
+
+.label-high-contrast {
+  @apply text-white font-black uppercase tracking-[0.2em] text-[11px] drop-shadow-sm;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

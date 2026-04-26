@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "Container": {
+      "title": "Container",
+      "description": "A shipping container tracked in the system",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string" },
+        "type": { "type": "string", "enum": ["Local", "Foreign"] },
+        "status": { "type": "string", "enum": ["Active", "Repairing", "Repaired", "Billing", "Billed", "Archived"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "localReference": { "type": "string" },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "required": ["number", "type", "status", "createdAt"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "A billing document for multiple containers",
+      "type": "object",
+      "properties": {
+        "invoiceNumber": { "type": "string" },
+        "containerIds": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["Draft", "Approved", "Billed", "Archived"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "billedAt": { "type": "string", "format": "date-time" },
+        "archivedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["invoiceNumber", "containerIds", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/containers/{containerId}": {
+      "schema": "Container",
+      "description": "Collection of containers"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Collection of invoices"
+    }
+  }
+}

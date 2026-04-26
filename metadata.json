@@ -1,0 +1,5 @@
+{
+  "name": "Container Repair PWA",
+  "description": "Mobile-first PWA for managing container repairs, billing flows, and archiving.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isSignedIn() {
+      // Mandating email verification for standard users as per Pillar 10
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Containers ---
+    match /containers/{containerId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() 
+        && isValidId(containerId)
+        && isValidContainer(incoming())
+        && incoming().createdAt == request.time;
+      
+      allow update: if isSignedIn()
+        && isValidContainer(incoming())
+        && (
+          // Action: Basic Update (e.g. status, localReference)
+          incoming().diff(existing()).affectedKeys().hasAny(['status', 'localReference', 'updatedAt', 'history'])
+          && incoming().createdAt == existing().createdAt
+          && incoming().number == existing().number
+        );
+      
+      allow delete: if isSignedIn();
+
+      function isValidContainer(data) {
+        return data.keys().hasAll(['number', 'type', 'status', 'createdAt'])
+          && data.number is string && data.number.size() <= 64
+          && data.type in ['Local', 'Foreign']
+          && data.status in ['Active', 'Repairing', 'Repaired', 'Billing', 'Billed', 'Archived']
+          && (data.get('localReference', null) == null || data.localReference is string)
+          && data.createdAt is timestamp
+          && (data.get('updatedAt', null) == null || data.updatedAt is timestamp)
+          && (data.get('history', null) == null || (data.history is list && data.history.size() <= 100));
+      }
+    }
+
+    // --- Invoices ---
+    match /invoices/{invoiceId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && isValidId(invoiceId)
+        && isValidInvoice(incoming())
+        && incoming().createdAt == request.time
+        && incoming().status == 'Draft';
+      
+      allow update: if isSignedIn()
+        && isValidInvoice(incoming())
+        && (
+          // Action: Update Invoice (Drafting: adding units, changing status)
+          (
+            existing().status == 'Draft' 
+            && incoming().diff(existing()).affectedKeys().hasAny(['containerIds', 'status', 'updatedAt'])
+            && (incoming().status in ['Draft', 'Approved'])
+          ) ||
+          // Action: Approve/Unapprove/Bill/Archive
+          (
+            incoming().diff(existing()).affectedKeys().hasAny(['status', 'updatedAt', 'billedAt', 'archivedAt'])
+            && (
+              (existing().status == 'Approved' && incoming().status in ['Draft', 'Billed']) ||
+              (existing().status == 'Billed' && incoming().status in ['Approved', 'Archived']) ||
+              (existing().status == 'Archived' && incoming().status == 'Billed')
+            )
+          ) ||
+          // Action: Update containers in a Draft invoice
+          (
+            existing().status == 'Draft'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['containerIds'])
+          )
+        )
+        && incoming().createdAt == existing().createdAt
+        && incoming().invoiceNumber == existing().invoiceNumber;
+
+      allow delete: if isSignedIn();
+
+      function isValidInvoice(data) {
+        return data.keys().hasAll(['invoiceNumber', 'containerIds', 'status', 'createdAt'])
+          && data.invoiceNumber is string && data.invoiceNumber.size() <= 64
+          && data.containerIds is list && data.containerIds.size() <= 500
+          && data.status in ['Draft', 'Approved', 'Billed', 'Archived']
+          && data.createdAt is timestamp
+          && (data.get('updatedAt', null) == null || data.updatedAt is timestamp)
+          && (data.get('billedAt', null) == null || data.billedAt is timestamp)
+          && (data.get('archivedAt', null) == null || data.archivedAt is timestamp);
+      }
+    }
+  }
+}
