@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { AppState, Container, Invoice, ContainerType, ContainerStatus, ContainerRepair, MediaData } from '../types';
+import { AppState, Container, Invoice, ContainerType, ContainerStatus, ContainerRepair, MediaData, VideoVersion } from '../types';
 import { 
   collection, 
   onSnapshot, 
@@ -61,7 +61,7 @@ interface StoreContextType {
   updateContainerData: (id: string, number: string, localReference: string) => Promise<{ success: boolean; error?: string }>;
   startRepair: (containerId: string) => Promise<{ success: boolean; repairId?: string; error?: string }>;
   completeRepair: (repairId: string) => Promise<void>;
-  updateRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string, videoThumbnail?: string) => Promise<void>;
+  updateRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', data: string | VideoVersion) => Promise<void>;
   removeRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url?: string) => Promise<void>;
 }
 
@@ -292,14 +292,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       // Cleanup media from Cloudinary (asynchronous, after DB cleanup)
       for (const repair of associatedRepairs) {
-        const urls = [
-          ...repair.beforeMedia.images,
-          ...repair.afterMedia.images,
-        ];
-        if (repair.beforeMedia.video) urls.push(repair.beforeMedia.video);
-        if (repair.afterMedia.video) urls.push(repair.afterMedia.video);
+        const urlsSet = new Set<string>();
+        
+        // Add images
+        repair.beforeMedia.images.forEach(url => urlsSet.add(url));
+        repair.afterMedia.images.forEach(url => urlsSet.add(url));
+        
+        // Add all video versions
+        if (repair.beforeMedia.video && typeof repair.beforeMedia.video !== 'string') {
+          urlsSet.add(repair.beforeMedia.video.originalUrl);
+          if (repair.beforeMedia.video.playbackUrl) urlsSet.add(repair.beforeMedia.video.playbackUrl);
+          if (repair.beforeMedia.video.downloadUrl) urlsSet.add(repair.beforeMedia.video.downloadUrl);
+          if (repair.beforeMedia.video.thumbnailUrl && repair.beforeMedia.video.thumbnailUrl.startsWith('http')) {
+            urlsSet.add(repair.beforeMedia.video.thumbnailUrl);
+          }
+        } else if (typeof repair.beforeMedia.video === 'string') {
+          urlsSet.add(repair.beforeMedia.video);
+        }
 
-        for (const url of urls) {
+        if (repair.afterMedia.video && typeof repair.afterMedia.video !== 'string') {
+          urlsSet.add(repair.afterMedia.video.originalUrl);
+          if (repair.afterMedia.video.playbackUrl) urlsSet.add(repair.afterMedia.video.playbackUrl);
+          if (repair.afterMedia.video.downloadUrl) urlsSet.add(repair.afterMedia.video.downloadUrl);
+          if (repair.afterMedia.video.thumbnailUrl && repair.afterMedia.video.thumbnailUrl.startsWith('http')) {
+            urlsSet.add(repair.afterMedia.video.thumbnailUrl);
+          }
+        } else if (typeof repair.afterMedia.video === 'string') {
+          urlsSet.add(repair.afterMedia.video);
+        }
+
+        for (const url of urlsSet) {
           try {
             await deleteMedia(url);
           } catch (e) {
@@ -344,14 +366,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       // Cleanup media from Cloudinary
       for (const repair of allAssociatedRepairs) {
-        const urls = [
-          ...repair.beforeMedia.images,
-          ...repair.afterMedia.images,
-        ];
-        if (repair.beforeMedia.video) urls.push(repair.beforeMedia.video);
-        if (repair.afterMedia.video) urls.push(repair.afterMedia.video);
+        const urlsSet = new Set<string>();
+        
+        // Add images
+        repair.beforeMedia.images.forEach(url => urlsSet.add(url));
+        repair.afterMedia.images.forEach(url => urlsSet.add(url));
+        
+        // Add all video versions
+        if (repair.beforeMedia.video && typeof repair.beforeMedia.video !== 'string') {
+          urlsSet.add(repair.beforeMedia.video.originalUrl);
+          if (repair.beforeMedia.video.playbackUrl) urlsSet.add(repair.beforeMedia.video.playbackUrl);
+          if (repair.beforeMedia.video.downloadUrl) urlsSet.add(repair.beforeMedia.video.downloadUrl);
+          if (repair.beforeMedia.video.thumbnailUrl && repair.beforeMedia.video.thumbnailUrl.startsWith('http')) {
+            urlsSet.add(repair.beforeMedia.video.thumbnailUrl);
+          }
+        } else if (typeof repair.beforeMedia.video === 'string') {
+          urlsSet.add(repair.beforeMedia.video);
+        }
 
-        for (const url of urls) {
+        if (repair.afterMedia.video && typeof repair.afterMedia.video !== 'string') {
+          urlsSet.add(repair.afterMedia.video.originalUrl);
+          if (repair.afterMedia.video.playbackUrl) urlsSet.add(repair.afterMedia.video.playbackUrl);
+          if (repair.afterMedia.video.downloadUrl) urlsSet.add(repair.afterMedia.video.downloadUrl);
+          if (repair.afterMedia.video.thumbnailUrl && repair.afterMedia.video.thumbnailUrl.startsWith('http')) {
+            urlsSet.add(repair.afterMedia.video.thumbnailUrl);
+          }
+        } else if (typeof repair.afterMedia.video === 'string') {
+          urlsSet.add(repair.afterMedia.video);
+        }
+
+        for (const url of urlsSet) {
           try {
             await deleteMedia(url);
           } catch (e) {
@@ -601,8 +645,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const urlsToArchive: string[] = [];
       repairsToArchive.forEach(r => {
         urlsToArchive.push(...r.beforeMedia.images, ...r.afterMedia.images);
-        if (r.beforeMedia.video) urlsToArchive.push(r.beforeMedia.video);
-        if (r.afterMedia.video) urlsToArchive.push(r.afterMedia.video);
+        if (r.beforeMedia.video) {
+          urlsToArchive.push(r.beforeMedia.video.originalUrl);
+          if (r.beforeMedia.video.playbackUrl) urlsToArchive.push(r.beforeMedia.video.playbackUrl);
+          if (r.beforeMedia.video.downloadUrl) urlsToArchive.push(r.beforeMedia.video.downloadUrl);
+          if (r.beforeMedia.video.thumbnailUrl) urlsToArchive.push(r.beforeMedia.video.thumbnailUrl);
+        }
+        if (r.afterMedia.video) {
+          urlsToArchive.push(r.afterMedia.video.originalUrl);
+          if (r.afterMedia.video.playbackUrl) urlsToArchive.push(r.afterMedia.video.playbackUrl);
+          if (r.afterMedia.video.downloadUrl) urlsToArchive.push(r.afterMedia.video.downloadUrl);
+          if (r.afterMedia.video.thumbnailUrl) urlsToArchive.push(r.afterMedia.video.thumbnailUrl);
+        }
       });
       
       let newUrlsMap: Record<string, string> = {};
@@ -629,10 +683,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       // Update repairs with new URLs
       repairsToArchive.forEach(r => {
-        const updateMedia = (media: any) => ({
+        const updateMedia = (media: MediaData) => ({
           ...media,
           images: media.images.map((url: string) => newUrlsMap[url] || url),
-          video: media.video ? (newUrlsMap[media.video] || media.video) : null
+          video: media.video ? {
+            originalUrl: newUrlsMap[media.video.originalUrl] || media.video.originalUrl,
+            playbackUrl: newUrlsMap[media.video.playbackUrl] || media.video.playbackUrl,
+            downloadUrl: newUrlsMap[media.video.downloadUrl] || media.video.downloadUrl,
+            thumbnailUrl: media.video.thumbnailUrl ? (newUrlsMap[media.video.thumbnailUrl] || media.video.thumbnailUrl) : null
+          } : null
         });
         
         batch.update(doc(db, 'containerRepairs', r.id), {
@@ -678,8 +737,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const urlsToArchive: string[] = [];
       repairsToArchive.forEach(r => {
         urlsToArchive.push(...r.beforeMedia.images, ...r.afterMedia.images);
-        if (r.beforeMedia.video) urlsToArchive.push(r.beforeMedia.video);
-        if (r.afterMedia.video) urlsToArchive.push(r.afterMedia.video);
+        if (r.beforeMedia.video) {
+          urlsToArchive.push(r.beforeMedia.video.originalUrl);
+          if (r.beforeMedia.video.playbackUrl) urlsToArchive.push(r.beforeMedia.video.playbackUrl);
+          if (r.beforeMedia.video.downloadUrl) urlsToArchive.push(r.beforeMedia.video.downloadUrl);
+          if (r.beforeMedia.video.thumbnailUrl) urlsToArchive.push(r.beforeMedia.video.thumbnailUrl);
+        }
+        if (r.afterMedia.video) {
+          urlsToArchive.push(r.afterMedia.video.originalUrl);
+          if (r.afterMedia.video.playbackUrl) urlsToArchive.push(r.afterMedia.video.playbackUrl);
+          if (r.afterMedia.video.downloadUrl) urlsToArchive.push(r.afterMedia.video.downloadUrl);
+          if (r.afterMedia.video.thumbnailUrl) urlsToArchive.push(r.afterMedia.video.thumbnailUrl);
+        }
       });
       
       let newUrlsMap: Record<string, string> = {};
@@ -692,10 +761,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
 
       repairsToArchive.forEach(r => {
-        const updateMedia = (media: any) => ({
+        const updateMedia = (media: MediaData) => ({
           ...media,
           images: media.images.map((url: string) => newUrlsMap[url] || url),
-          video: media.video ? (newUrlsMap[media.video] || media.video) : null
+          video: media.video ? {
+            originalUrl: newUrlsMap[media.video.originalUrl] || media.video.originalUrl,
+            playbackUrl: newUrlsMap[media.video.playbackUrl] || media.video.playbackUrl,
+            downloadUrl: newUrlsMap[media.video.downloadUrl] || media.video.downloadUrl,
+            thumbnailUrl: media.video.thumbnailUrl ? (newUrlsMap[media.video.thumbnailUrl] || media.video.thumbnailUrl) : null
+          } : null
         });
         
         batch.update(doc(db, 'containerRepairs', r.id), {
@@ -973,7 +1047,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const updateRepairMedia = async (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string, videoThumbnail?: string) => {
+  const updateRepairMedia = async (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', data: string | VideoVersion) => {
     try {
       const repair = state.repairs.find(r => r.id === repairId);
       if (!repair) return;
@@ -983,24 +1057,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (type === 'video') {
         const oldVideo = currentMedia.video;
-        const updateData: any = {
-          [`${mediaKey}.video`]: url
-        };
-        if (videoThumbnail !== undefined) {
-          updateData[`${mediaKey}.videoThumbnail`] = videoThumbnail;
-        }
-        await updateDoc(doc(db, 'containerRepairs', repairId), updateData);
+        const videoData = data as VideoVersion;
+        
+        await updateDoc(doc(db, 'containerRepairs', repairId), {
+          [`${mediaKey}.video`]: videoData
+        });
         
         // Delete old video if it's being replaced
-        if (oldVideo && oldVideo !== url) {
+        if (oldVideo && oldVideo.originalUrl !== videoData.originalUrl) {
           try {
-            await deleteMedia(oldVideo);
+            await deleteMedia(oldVideo.originalUrl);
           } catch (e) {
             console.error('Failed to delete replaced video from Cloudinary:', e);
           }
         }
       } else {
         // Enforce max 10 images
+        const url = data as string;
         if (currentMedia.images.length >= 10) return;
         await updateDoc(doc(db, 'containerRepairs', repairId), {
           [`${mediaKey}.images`]: [...currentMedia.images, url]
@@ -1021,12 +1094,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (type === 'video') {
         await updateDoc(doc(db, 'containerRepairs', repairId), {
-          [`${mediaKey}.video`]: null,
-          [`${mediaKey}.videoThumbnail`]: null
+          [`${mediaKey}.video`]: null
         });
         if (currentMedia.video) {
           try {
-            await deleteMedia(currentMedia.video);
+            await deleteMedia(currentMedia.video.originalUrl);
           } catch(e) { console.error('Failed to delete from Cloudinary:', e); }
         }
       } else if (url) {

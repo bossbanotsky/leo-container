@@ -54,6 +54,45 @@ export const uploadMedia = async (file: File, folder: string, onProgress?: (prog
   });
 };
 
+export const getVideoVersions = (originalUrl: string, thumbnailUrl?: string | null) => {
+  // Cloudinary URL format: https://res.cloudinary.com/[cloud_name]/video/upload/[transformations]/[version]/[public_id].[ext]
+  // We want to transform:
+  // Playback: f_auto,q_auto,w_854 (480p)
+  // Download: f_auto,q_auto:good,w_1280,h_720,c_limit (720p)
+
+  if (!originalUrl.includes('cloudinary.com')) {
+    return {
+      originalUrl,
+      playbackUrl: originalUrl,
+      downloadUrl: originalUrl,
+      thumbnailUrl
+    };
+  }
+
+  // Find the 'upload/' part
+  const uploadPart = '/upload/';
+  const index = originalUrl.indexOf(uploadPart);
+  
+  if (index === -1) {
+    return {
+      originalUrl,
+      playbackUrl: originalUrl,
+      downloadUrl: originalUrl,
+      thumbnailUrl
+    };
+  }
+
+  const base = originalUrl.substring(0, index + uploadPart.length);
+  const rest = originalUrl.substring(index + uploadPart.length);
+
+  return {
+    originalUrl,
+    playbackUrl: `${base}f_auto,q_auto,w_854/${rest}`,
+    downloadUrl: `${base}f_auto,q_auto:good,w_1280,h_720,c_limit/${rest}`,
+    thumbnailUrl
+  };
+};
+
 export const deleteMedia = async (url: string): Promise<void> => {
   const response = await fetch('/api/delete', {
     method: 'POST',

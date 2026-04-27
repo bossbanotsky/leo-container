@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { ContainerRepair } from '../types';
+import { ContainerRepair, VideoVersion } from '../types';
 import { useStore } from '../store/StoreContext';
-import { uploadMedia } from '../services/CloudinaryService';
+import { uploadMedia, getVideoVersions } from '../services/CloudinaryService';
 import { Image, Video, Upload, Trash2, CheckCircle, Clock, Download, X, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -23,7 +23,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [percentProgress, setPercentProgress] = useState<number>(0);
   const [activePhase, setActivePhase] = useState<'before' | 'after'>('before');
-  const [selectedMedia, setSelectedMedia] = useState<{ type: 'image' | 'video', url: string, phase?: 'before' | 'after', videoThumbnail?: string | null } | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<{ type: 'image' | 'video', url: string, playbackUrl?: string, downloadUrl?: string, phase?: 'before' | 'after', videoThumbnail?: string | null } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video', url?: string } | null>(null);
   const [cameraMode, setCameraMode] = useState<'video' | 'image' | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,7 +88,9 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
           });
           setUploadProgress('Processing Video...');
           setPercentProgress(100);
-          await updateRepairMedia(repair.id, phase, 'video', url);
+          
+          const videoVersions = getVideoVersions(url);
+          await updateRepairMedia(repair.id, phase, 'video', videoVersions);
         } else {
           // It's an image
           const currentImagesCount = repair[`${phase}Media`].images.length;
@@ -202,13 +204,15 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
               <span className="flex items-center gap-2"><Video className="w-3 h-3" /> Video (1 Max)</span>
               {repair[`${activePhase}Media`].video && (
                 <a 
-                  href={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video', { asDownload: true })}
+                  href={typeof repair[`${activePhase}Media`].video === 'string' 
+                    ? getOptimizedMediaUrl(repair[`${activePhase}Media`].video as string, 'video', { asDownload: true })
+                    : (repair[`${activePhase}Media`].video as VideoVersion).downloadUrl}
                   download
                   target="_blank"
                   rel="noreferrer"
                   className="text-laser-indigo flex items-center gap-1 hover:underline"
                 >
-                  <Download className="w-3 h-3" /> <span className="text-[9px]">GET</span>
+                  <Download className="w-3 h-3" /> <span className="text-[9px]">GET 720p</span>
                 </a>
               )}
             </label>
@@ -216,9 +220,29 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
               {repair[`${activePhase}Media`].video ? (
                 <>
                   <img 
-                    src={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video', { isThumbnail: true, videoThumbnail: repair[`${activePhase}Media`].videoThumbnail })} 
+                    src={getOptimizedMediaUrl(
+                        typeof repair[`${activePhase}Media`].video === 'string' 
+                          ? repair[`${activePhase}Media`].video as string 
+                          : (repair[`${activePhase}Media`].video as VideoVersion).originalUrl, 
+                        'video', 
+                        { isThumbnail: true, videoThumbnail: (repair[`${activePhase}Media`].video as any).thumbnailUrl }
+                    )} 
                     className="w-full h-full object-cover cursor-pointer"
-                    onClick={() => setSelectedMedia({ type: 'video', url: repair[`${activePhase}Media`].video!, phase: activePhase, videoThumbnail: repair[`${activePhase}Media`].videoThumbnail })}
+                    onClick={() => {
+                      const v = repair[`${activePhase}Media`].video;
+                      if (typeof v === 'string') {
+                        setSelectedMedia({ type: 'video', url: v, playbackUrl: v, downloadUrl: v, phase: activePhase });
+                      } else if (v) {
+                        setSelectedMedia({ 
+                          type: 'video', 
+                          url: v.originalUrl, 
+                          playbackUrl: v.playbackUrl, 
+                          downloadUrl: v.downloadUrl, 
+                          phase: activePhase, 
+                          videoThumbnail: v.thumbnailUrl 
+                        });
+                      }
+                    }}
                     alt="Video thumbnail"
                   />
                   <div>
@@ -389,7 +413,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
               ) : (
                 <video 
                   ref={videoRef}
-                  src={getOptimizedMediaUrl(selectedMedia.url, 'video', { isLightbox: true })} 
+                  src={selectedMedia.playbackUrl || getOptimizedMediaUrl(selectedMedia.url, 'video', { isLightbox: true })} 
                   poster={getOptimizedMediaUrl(selectedMedia.url, 'video', { isThumbnail: true, videoThumbnail: selectedMedia.videoThumbnail })}
                   className="max-w-full max-h-[85vh] rounded-xl shadow-2xl"
                   controls
@@ -399,13 +423,13 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
               
               <div className="mt-4 flex gap-4">
                 <a
-                  href={getOptimizedMediaUrl(selectedMedia.url, selectedMedia.type, { asDownload: true })}
+                  href={selectedMedia.downloadUrl || getOptimizedMediaUrl(selectedMedia.url, selectedMedia.type, { asDownload: true })}
                   download
                   target="_blank"
                   rel="noreferrer"
-                  className="bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-full text-sm font-bold flex items-center gap-2 transition-colors"
+                  className="bg-laser-indigo hover:bg-laser-indigo/80 text-white px-6 py-2 rounded-full text-sm font-bold flex items-center gap-2 transition-colors shadow-lg"
                 >
-                  <Download className="w-4 h-4" /> Download Original
+                  <Download className="w-4 h-4" /> Download 720p HD
                 </a>
                 <button
                   onClick={() => {
@@ -420,7 +444,13 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                      onClick={() => {
                         if (videoRef.current && selectedMedia.phase) {
                            const time = videoRef.current.currentTime;
-                           updateRepairMedia(repair.id, selectedMedia.phase, 'video', selectedMedia.url, time.toFixed(2));
+                           const phase = selectedMedia.phase;
+                           const v = repair[`${phase}Media`].video;
+                           if (typeof v === 'string') {
+                             updateRepairMedia(repair.id, phase, 'video', getVideoVersions(v, time.toFixed(2)));
+                           } else if (v) {
+                             updateRepairMedia(repair.id, phase, 'video', { ...v, thumbnailUrl: time.toFixed(2) });
+                           }
                            alert("Thumbnail updated!");
                         }
                      }}

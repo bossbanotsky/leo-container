@@ -38,9 +38,15 @@ export interface Invoice {
   archivedAt?: number;
 }
 
+export interface VideoVersion {
+  originalUrl: string;
+  playbackUrl: string;
+  downloadUrl: string;
+  thumbnailUrl?: string | null;
+}
+
 export interface MediaData {
-  video: string | null;
-  videoThumbnail?: string | null;
+  video: VideoVersion | null;
   images: string[];
 }
 
