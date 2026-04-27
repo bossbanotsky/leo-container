@@ -90,6 +90,43 @@ async function startServer() {
     }
   });
 
+  // API to delete media
+  app.post("/api/delete", express.json(), async (req: express.Request, res: express.Response) => {
+    try {
+      if (!process.env.VITE_CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+        return res.status(500).json({ error: 'Cloudinary credentials are not configured.' });
+      }
+
+      const { url } = req.body;
+      if (!url) {
+        return res.status(400).json({ error: 'URL is required' });
+      }
+
+      // Extract public_id and resource_type from Cloudinary URL
+      // Example URL: https://res.cloudinary.com/demo/image/upload/v12345678/folder/filename.jpg
+      const match = url.match(/\/res\.cloudinary\.com\/[^\/]+\/(image|video|raw)\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/);
+      if (!match) {
+        return res.status(400).json({ error: 'Invalid Cloudinary URL' });
+      }
+
+      const resourceType = match[1];
+      const publicId = match[2];
+
+      cloudinary.config({
+        cloud_name: process.env.VITE_CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+
+      const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      
+      res.json({ success: true, result });
+    } catch (error: any) {
+      console.error('Delete Error Details:', error);
+      res.status(500).json({ error: error.message || 'Delete failed' });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

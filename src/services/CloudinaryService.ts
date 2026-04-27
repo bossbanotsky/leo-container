@@ -52,3 +52,24 @@ export const uploadMedia = async (file: File, folder: string, onProgress?: (prog
     xhr.send(formData);
   });
 };
+
+export const deleteMedia = async (url: string): Promise<void> => {
+  const response = await fetch('/api/delete', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Delete failed (${response.status})`;
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch(e) {
+      // Ignore
+    }
+    throw new Error(errorMessage);
+  }
+};

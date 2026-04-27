@@ -24,6 +24,7 @@ import {
 } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { differenceInDays } from 'date-fns';
+import { deleteMedia } from '../services/CloudinaryService';
 
 interface StoreContextType {
   state: AppState;
@@ -60,6 +61,7 @@ interface StoreContextType {
   startRepair: (containerId: string) => Promise<{ success: boolean; repairId?: string; error?: string }>;
   completeRepair: (repairId: string) => Promise<void>;
   updateRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string) => Promise<void>;
+  removeRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url?: string) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | null>(null);
@@ -869,6 +871,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const removeRepairMedia = async (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url?: string) => {
+    try {
+      const repair = state.repairs.find(r => r.id === repairId);
+      if (!repair) return;
+
+      const mediaKey = phase === 'before' ? 'beforeMedia' : 'afterMedia';
+      const currentMedia = repair[mediaKey];
+
+      if (type === 'video') {
+        await updateDoc(doc(db, 'containerRepairs', repairId), {
+          [`${mediaKey}.video`]: null
+        });
+        if (currentMedia.video) {
+          try {
+            await deleteMedia(currentMedia.video);
+          } catch(e) { console.error('Failed to delete from Cloudinary:', e); }
+        }
+      } else if (url) {
+        await updateDoc(doc(db, 'containerRepairs', repairId), {
+          [`${mediaKey}.images`]: currentMedia.images.filter(img => img !== url)
+        });
+        try {
+          await deleteMedia(url);
+        } catch(e) { console.error('Failed to delete from Cloudinary:', e); }
+      }
+    } catch (error) {
+       handleFirestoreError(error, OperationType.UPDATE, `containerRepairs/${repairId}`);
+    }
+  };
+
   const value = {
     state,
     user,
@@ -903,7 +935,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     updateContainerData,
     startRepair,
     completeRepair,
-    updateRepairMedia
+    updateRepairMedia,
+    removeRepairMedia
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
