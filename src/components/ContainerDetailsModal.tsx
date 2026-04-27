@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useStore } from '../store/StoreContext';
 import { cn } from '../lib/utils';
-import { X, Clock, Terminal, ChevronUp, ChevronDown, MessageSquare, Send } from 'lucide-react';
+import { X, Clock, Terminal, ChevronUp, ChevronDown, MessageSquare, Send, Wrench } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RepairMediaSection } from './RepairMediaSection';
 
 interface ContainerDetailsModalProps {
   containerId: string;
@@ -77,7 +78,7 @@ export const ContainerDetailsModal: React.FC<ContainerDetailsModalProps> = ({ co
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-carbon-900 border border-white/10 rounded-[2.5rem] w-full max-w-sm overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
+        className="bg-carbon-900 border border-white/10 rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
       >
         <div className="px-8 py-6 border-b border-white/20 bg-white/10 flex justify-between items-center text-white shrink-0">
           <div className="flex items-center gap-2">
@@ -178,6 +179,14 @@ export const ContainerDetailsModal: React.FC<ContainerDetailsModalProps> = ({ co
               <span className="text-[9px] font-black text-slate-200 uppercase tracking-widest block mb-1">Link Ref</span>
               <span className="text-[11px] font-mono text-white font-black uppercase truncate block">{c.localReference || 'UNLINKED'}</span>
             </button>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Wrench size={14} className="text-white" />
+              <span className="text-[10px] font-black text-white uppercase tracking-widest">Repair Documentation</span>
+            </div>
+            <RepairMediaSection containerId={c.id} />
           </div>
 
           <div>

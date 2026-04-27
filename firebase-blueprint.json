@@ -51,6 +51,32 @@
         "archivedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["invoiceNumber", "containerIds", "status", "createdAt"]
+    },
+    "ContainerRepair": {
+      "title": "Container Repair",
+      "description": "Media records for a container repair cycle",
+      "type": "object",
+      "properties": {
+        "containerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "beforeMedia": {
+          "type": "object",
+          "properties": {
+            "video": { "type": "string" },
+            "images": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "afterMedia": {
+          "type": "object",
+          "properties": {
+            "video": { "type": "string" },
+            "images": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["containerId", "status", "beforeMedia", "afterMedia", "createdAt"]
     }
   },
   "firestore": {
@@ -61,6 +87,10 @@
     "/invoices/{invoiceId}": {
       "schema": "Invoice",
       "description": "Collection of invoices"
+    },
+    "/containerRepairs/{repairId}": {
+      "schema": "ContainerRepair",
+      "description": "Collection of repair media records"
     }
   }
 }

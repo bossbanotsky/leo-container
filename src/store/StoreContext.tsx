@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { AppState, Container, Invoice, ContainerType, ContainerStatus } from '../types';
+import { AppState, Container, Invoice, ContainerType, ContainerStatus, ContainerRepair, MediaData } from '../types';
 import { 
   collection, 
   onSnapshot, 
@@ -9,6 +9,7 @@ import {
   deleteDoc, 
   query, 
   orderBy, 
+  limit,
   serverTimestamp,
   Timestamp,
   writeBatch,
@@ -56,6 +57,9 @@ interface StoreContextType {
   bulkUndoInvoiceBilled: (ids: string[]) => Promise<void>;
   bulkUndoInvoiceArchived: (ids: string[]) => Promise<void>;
   updateContainerData: (id: string, number: string, localReference: string) => Promise<{ success: boolean; error?: string }>;
+  startRepair: (containerId: string) => Promise<{ success: boolean; repairId?: string; error?: string }>;
+  completeRepair: (repairId: string) => Promise<void>;
+  updateRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | null>(null);
@@ -67,7 +71,7 @@ export const useStore = () => {
 };
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [state, setState] = useState<AppState>({ containers: [], invoices: [] });
+  const [state, setState] = useState<AppState>({ containers: [], invoices: [], repairs: [] });
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -84,7 +88,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!user) return;
 
-    const qContainers = query(collection(db, 'containers'), orderBy('createdAt', 'desc'));
+    const qContainers = query(collection(db, 'containers'), orderBy('createdAt', 'desc'), limit(200));
     const unsubscribeContainers = onSnapshot(qContainers, (snapshot) => {
       const containers = snapshot.docs.map(d => {
         const data = d.data();
@@ -108,7 +112,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(error, OperationType.GET, 'containers');
     });
 
-    const qInvoices = query(collection(db, 'invoices'), orderBy('createdAt', 'desc'));
+    const qInvoices = query(collection(db, 'invoices'), orderBy('createdAt', 'desc'), limit(100));
     const unsubscribeInvoices = onSnapshot(qInvoices, (snapshot) => {
       const invoices = snapshot.docs.map(d => {
         const data = d.data();
@@ -125,9 +129,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(error, OperationType.GET, 'invoices');
     });
 
+    const qRepairs = query(collection(db, 'containerRepairs'), orderBy('createdAt', 'desc'), limit(100));
+    const unsubscribeRepairs = onSnapshot(qRepairs, (snapshot) => {
+      const repairs = snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          id: d.id,
+          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toMillis() : data.createdAt,
+          completedAt: data.completedAt instanceof Timestamp ? data.completedAt.toMillis() : data.completedAt
+        } as ContainerRepair;
+      });
+      setState(s => ({ ...s, repairs }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'containerRepairs');
+    });
+
     return () => {
       unsubscribeContainers();
       unsubscribeInvoices();
+      unsubscribeRepairs();
     };
   }, [user]);
 
@@ -785,6 +806,69 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const startRepair = async (containerId: string) => {
+    try {
+      const repairData = {
+        containerId,
+        status: 'active' as const,
+        beforeMedia: { video: null, images: [] },
+        afterMedia: { video: null, images: [] },
+        createdAt: serverTimestamp()
+      };
+      
+      const docRef = await addDoc(collection(db, 'containerRepairs'), repairData);
+      
+      // Also update container status to Repairing
+      await updateContainerStatus(containerId, 'Repairing');
+      
+      return { success: true, repairId: docRef.id };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'containerRepairs');
+      return { success: false, error: 'Failed to start repair' };
+    }
+  };
+
+  const completeRepair = async (repairId: string) => {
+    try {
+      const repair = state.repairs.find(r => r.id === repairId);
+      if (!repair) return;
+
+      await updateDoc(doc(db, 'containerRepairs', repairId), {
+        status: 'completed',
+        completedAt: serverTimestamp()
+      });
+
+      // Update container status to Repaired
+      await updateContainerStatus(repair.containerId, 'Repaired');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `containerRepairs/${repairId}`);
+    }
+  };
+
+  const updateRepairMedia = async (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string) => {
+    try {
+      const repair = state.repairs.find(r => r.id === repairId);
+      if (!repair) return;
+
+      const mediaKey = phase === 'before' ? 'beforeMedia' : 'afterMedia';
+      const currentMedia = repair[mediaKey];
+
+      if (type === 'video') {
+        await updateDoc(doc(db, 'containerRepairs', repairId), {
+          [`${mediaKey}.video`]: url
+        });
+      } else {
+        // Enforce max 10 images
+        if (currentMedia.images.length >= 10) return;
+        await updateDoc(doc(db, 'containerRepairs', repairId), {
+          [`${mediaKey}.images`]: [...currentMedia.images, url]
+        });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `containerRepairs/${repairId}`);
+    }
+  };
+
   const value = {
     state,
     user,
@@ -816,7 +900,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     undoInvoiceArchived,
     bulkUndoInvoiceBilled,
     bulkUndoInvoiceArchived,
-    updateContainerData
+    updateContainerData,
+    startRepair,
+    completeRepair,
+    updateRepairMedia
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

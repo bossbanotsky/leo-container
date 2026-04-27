@@ -38,7 +38,23 @@ export interface Invoice {
   archivedAt?: number;
 }
 
+export interface MediaData {
+  video: string | null;
+  images: string[];
+}
+
+export interface ContainerRepair {
+  id: string;
+  containerId: string;
+  status: 'active' | 'completed';
+  beforeMedia: MediaData;
+  afterMedia: MediaData;
+  createdAt: number;
+  completedAt?: number;
+}
+
 export interface AppState {
   containers: Container[];
   invoices: Invoice[];
+  repairs: ContainerRepair[];
 }
