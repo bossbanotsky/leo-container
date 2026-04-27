@@ -46,39 +46,61 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'image', phase: 'before' | 'after') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
 
     setIsUploading(true);
     setPercentProgress(0);
     try {
-      let fileToUpload = file;
-      
       if (type === 'video') {
+        const file = files[0];
         const duration = await getVideoDuration(file);
         if (duration > 120) {
             throw new Error("Video must be 2 minutes or less");
         }
         setUploadProgress('Compressing Video...');
-        fileToUpload = await compressVideo(file, (ratio) => {
+        let fileToUpload = await compressVideo(file, (ratio) => {
             setUploadProgress('Compressing Video...');
             setPercentProgress(Math.round(ratio * 100));
         });
-      } else {
-        setUploadProgress('Compressing Image...');
-        setPercentProgress(50);
-        fileToUpload = await compressImage(file);
-      }
 
-      setUploadProgress('Uploading to Server...');
-      setPercentProgress(0);
-      const folder = `containers/${containerNumber}/${phase}`;
-      const url = await uploadMedia(fileToUpload, folder, (progress) => {
-        setPercentProgress(progress);
-      });
-      setUploadProgress('Processing...');
-      setPercentProgress(100);
-      await updateRepairMedia(repair.id, phase, type, url);
+        setUploadProgress('Uploading to Server...');
+        setPercentProgress(0);
+        const folder = `containers/${containerNumber}/${phase}`;
+        const url = await uploadMedia(fileToUpload, folder, (progress) => {
+          setPercentProgress(progress);
+        });
+        setUploadProgress('Processing...');
+        setPercentProgress(100);
+        await updateRepairMedia(repair.id, phase, type, url);
+      } else {
+        const currentImagesCount = repair[`${phase}Media`].images.length;
+        const allowedSpace = 10 - currentImagesCount;
+        const filesToProcess = files.slice(0, allowedSpace);
+        
+        if (filesToProcess.length === 0) {
+            throw new Error('Maximum of 10 images allowed.');
+        }
+
+        let uploadedCount = 0;
+        for (const file of filesToProcess) {
+           setUploadProgress(`Compressing Image ${uploadedCount + 1} of ${filesToProcess.length}...`);
+           setPercentProgress(50);
+           const fileToUpload = await compressImage(file);
+           
+           setUploadProgress(`Uploading Image ${uploadedCount + 1} of ${filesToProcess.length}...`);
+           setPercentProgress(0);
+           const folder = `containers/${containerNumber}/${phase}`;
+           const url = await uploadMedia(fileToUpload, folder, (progress) => {
+             setPercentProgress(progress);
+           });
+           
+           await updateRepairMedia(repair.id, phase, 'image', url);
+           uploadedCount++;
+        }
+        setUploadProgress('Processing...');
+        setPercentProgress(100);
+      }
     } catch (error) {
       console.error('Upload failed:', error);
       alert('Upload failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -148,7 +170,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
               <span className="flex items-center gap-2"><Video className="w-3 h-3" /> Video (1 Max)</span>
               {repair[`${activePhase}Media`].video && (
                 <a 
-                  href={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video', true)}
+                  href={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video', { asDownload: true })}
                   download
                   target="_blank"
                   rel="noreferrer"
@@ -162,7 +184,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
               {repair[`${activePhase}Media`].video ? (
                 <>
                   <video 
-                    src={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video')} 
+                    src={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video', { isThumbnail: true })} 
                     className="w-full h-full object-cover cursor-pointer"
                     onClick={() => setSelectedMedia({ type: 'video', url: repair[`${activePhase}Media`].video! })}
                   />
@@ -212,7 +234,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                   className="aspect-square bg-black rounded-lg border border-white/5 overflow-hidden group relative cursor-pointer"
                   onClick={() => setSelectedMedia({ type: 'image', url: img })}
                 >
-                  <img src={getOptimizedMediaUrl(img, 'image')} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                  <img src={getOptimizedMediaUrl(img, 'image', { isThumbnail: true })} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2">
                     <div className="flex justify-end gap-1">
                       {!isCompleted && (
@@ -227,7 +249,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                         </button>
                       )}
                       <a
-                        href={getOptimizedMediaUrl(img, 'image', true)}
+                        href={getOptimizedMediaUrl(img, 'image', { asDownload: true })}
                         download
                         target="_blank"
                         rel="noreferrer"
@@ -245,6 +267,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                    <input 
                     type="file" 
                     accept="image/*" 
+                    multiple
                     className="hidden" 
                     onChange={(e) => handleFileUpload(e, 'image', activePhase)}
                     disabled={isUploading}
@@ -308,13 +331,13 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
             >
               {selectedMedia.type === 'image' ? (
                 <img 
-                  src={getOptimizedMediaUrl(selectedMedia.url, 'image', true)} 
+                  src={getOptimizedMediaUrl(selectedMedia.url, 'image', { isLightbox: true })} 
                   alt="Enlarged view" 
                   className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
                 />
               ) : (
                 <video 
-                  src={getOptimizedMediaUrl(selectedMedia.url, 'video', true)} 
+                  src={getOptimizedMediaUrl(selectedMedia.url, 'video', { isLightbox: true })} 
                   className="max-w-full max-h-[85vh] rounded-xl shadow-2xl"
                   controls
                   autoPlay
@@ -323,7 +346,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
               
               <div className="mt-4 flex gap-4">
                 <a
-                  href={getOptimizedMediaUrl(selectedMedia.url, selectedMedia.type, true)}
+                  href={getOptimizedMediaUrl(selectedMedia.url, selectedMedia.type, { asDownload: true })}
                   download
                   target="_blank"
                   rel="noreferrer"

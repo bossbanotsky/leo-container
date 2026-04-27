@@ -96,17 +96,46 @@ export const getVideoDuration = (file: File): Promise<number> => {
   });
 };
 
-export const getOptimizedMediaUrl = (url: string, type: 'video' | 'image', asDownload = false) => {
+export const getOptimizedMediaUrl = (
+  url: string, 
+  type: 'video' | 'image', 
+  options: {
+    asDownload?: boolean;
+    isThumbnail?: boolean;
+    isLightbox?: boolean;
+  } = {}
+) => {
   if (!url.includes('res.cloudinary.com')) return url;
   
   // URL structure: https://res.cloudinary.com/<cloud>/video/upload/v12345/folder/file.mp4
   const parts = url.split('/upload/');
   if (parts.length !== 2) return url;
   
-  const transformations = ['q_auto', 'f_auto'];
+  // Base optimizations: auto format and eco quality for maximum bandwidth savings
+  let transformations = ['f_auto', 'q_auto:eco'];
   
-  if (asDownload && type === 'video') {
-    transformations.push('fl_attachment');
+  if (type === 'image') {
+    if (options.isThumbnail) {
+      transformations.push('c_fill,w_400,h_400'); // Crop small for grid
+    } else if (options.isLightbox) {
+      transformations.push('c_limit,w_1920,h_1920'); // Limit to 1080p screen bounds
+    } else {
+      transformations.push('c_limit,w_800'); // Default limits
+    }
+  } else if (type === 'video') {
+    transformations.push('vc_auto'); // Let Cloudinary pick the best video codec
+    if (options.isThumbnail) {
+      transformations.push('c_limit,w_640', 'vc_auto:vp9'); // VP9 for web if possible
+    } else if (options.isLightbox) {
+      transformations.push('c_limit,w_1280'); // 720p limit for video lightbox
+    } else {
+      transformations.push('c_limit,w_800');
+    }
+  }
+
+  // If serving as an attachment download
+  if (options.asDownload) {
+    transformations = ['fl_attachment', 'f_auto', 'q_auto']; // Use standard auto quality for downloads
   }
   
   return `${parts[0]}/upload/${transformations.join(',')}/${parts[1]}`;
