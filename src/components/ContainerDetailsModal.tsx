@@ -44,13 +44,25 @@ const StatusLogEntry = ({ h }: StatusLogEntryProps) => {
 };
 
 export const ContainerDetailsModal: React.FC<ContainerDetailsModalProps> = ({ containerId, onClose }) => {
-  const { state, addContainerNote } = useStore();
+  const { state, addContainerNote, updateContainerData } = useStore();
   const [noteText, setNoteText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const c = state.containers.find(x => x.id === containerId);
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [editNumber, setEditNumber] = useState(c?.number || '');
+  const [editLocalRef, setEditLocalRef] = useState(c?.localReference || '');
+
   if (!c) return null;
+
+  const handleSaveEdit = async () => {
+    if (!editNumber.trim()) return;
+    setIsSubmitting(true);
+    await updateContainerData(c.id, editNumber.trim().toUpperCase(), editLocalRef.trim().toUpperCase());
+    setIsEditing(false);
+    setIsSubmitting(false);
+  };
 
   const handleAddNote = async () => {
     if (!noteText.trim() || isSubmitting) return;
@@ -79,16 +91,68 @@ export const ContainerDetailsModal: React.FC<ContainerDetailsModalProps> = ({ co
 
         <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar">
           <div className="flex justify-between items-start">
-            <div>
-              <h3 className="text-3xl font-display font-black text-white tracking-tight uppercase leading-none drop-shadow-md text-glow">
-                {c.number}
-              </h3>
-              <p className="text-[10px] font-mono text-slate-100 font-black uppercase tracking-widest mt-2 px-1">
-                Asset Ref // {c.id.slice(0, 12).toUpperCase()}
-              </p>
+            <div className="flex-1 mr-4">
+              {isEditing ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Container Number</label>
+                    <input
+                      type="text"
+                      value={editNumber}
+                      onChange={(e) => setEditNumber(e.target.value)}
+                      className="w-full bg-carbon-800 border-2 border-white/10 rounded-xl px-4 py-2 text-[14px] font-mono text-white outline-none focus:border-laser-indigo uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Local Reference</label>
+                    <input
+                      type="text"
+                      value={editLocalRef}
+                      onChange={(e) => setEditLocalRef(e.target.value)}
+                      className="w-full bg-carbon-800 border-2 border-white/10 rounded-xl px-4 py-2 text-[14px] font-mono text-white outline-none focus:border-laser-indigo uppercase"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleSaveEdit}
+                      disabled={isSubmitting}
+                      className="flex-1 bg-laser-indigo text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg"
+                    >
+                      {isSubmitting ? 'SAVING...' : 'SAVE CHANGES'}
+                    </button>
+                    <button 
+                      onClick={() => setIsEditing(false)}
+                      className="flex-1 bg-white/5 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10"
+                    >
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => {
+                      setEditNumber(c.number);
+                      setEditLocalRef(c.localReference || '');
+                      setIsEditing(true);
+                    }}
+                    className="text-left group w-full"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[9px] font-black text-laser-indigo uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Click to edit</span>
+                    </div>
+                    <h3 className="text-3xl font-display font-black text-white tracking-tight uppercase leading-none drop-shadow-md text-glow group-hover:text-laser-indigo transition-colors flex items-center gap-3">
+                      {c.number}
+                    </h3>
+                  </button>
+                  <p className="text-[10px] font-mono text-slate-100 font-black uppercase tracking-widest mt-2 px-1 opacity-60">
+                    Asset Ref // {c.id.slice(0, 12).toUpperCase()}
+                  </p>
+                </>
+              )}
             </div>
             <span className={cn(
-              "text-[9px] font-black px-2.5 py-1 rounded-full border-2 uppercase tracking-widest shadow-lg",
+              "text-[9px] font-black px-2.5 py-1 rounded-full border-2 uppercase tracking-widest shadow-lg shrink-0",
               c.type === 'Local' ? "border-sky-500/50 text-sky-100 bg-sky-600/40" : "border-emerald-500/50 text-emerald-100 bg-emerald-600/40"
             )}>
               {c.type}
@@ -103,10 +167,17 @@ export const ContainerDetailsModal: React.FC<ContainerDetailsModalProps> = ({ co
                 c.status === 'Active' ? "text-sky-300" : c.status === 'Repairing' ? "text-fuchsia-300" : "text-lime-300"
               )}>{c.status}</span>
             </div>
-            <div className="bg-carbon-800 p-4 rounded-xl border-2 border-white/10 shadow-2xl">
+            <button 
+              onClick={() => {
+                setEditNumber(c.number);
+                setEditLocalRef(c.localReference || '');
+                setIsEditing(true);
+              }}
+              className="bg-carbon-800 p-4 rounded-xl border-2 border-white/10 shadow-2xl hover:border-laser-indigo transition-all text-left"
+            >
               <span className="text-[9px] font-black text-slate-200 uppercase tracking-widest block mb-1">Link Ref</span>
               <span className="text-[11px] font-mono text-white font-black uppercase truncate block">{c.localReference || 'UNLINKED'}</span>
-            </div>
+            </button>
           </div>
 
           <div>

@@ -34,10 +34,21 @@ export const BillingPage: React.FC = () => {
   const draftInvoices = state.invoices.filter(i => i.status === 'Draft');
   
   const displayedDrafts = useMemo(() => {
-    return draftInvoices.filter(i => 
-      i.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      state.containers.filter(c => i.containerIds.includes(c.id)).some(c => c.number.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const searchNormalized = normalize(searchQuery);
+
+    return draftInvoices.filter(i => {
+      if (!searchQuery) return true;
+      const invNormalized = normalize(i.invoiceNumber);
+      const hasMatchingContainer = state.containers
+        .filter(c => i.containerIds.includes(c.id))
+        .some(c => 
+          normalize(c.number).includes(searchNormalized) || 
+          (c.localReference && normalize(c.localReference).includes(searchNormalized))
+        );
+      
+      return invNormalized.includes(searchNormalized) || hasMatchingContainer;
+    });
   }, [draftInvoices, searchQuery, state.containers]);
 
   const [addingToInvoiceId, setAddingToInvoiceId] = useState<string | null>(null);
@@ -88,8 +99,8 @@ export const BillingPage: React.FC = () => {
     setError('');
     let res;
     if (createMode === 'Manual') {
-      const localList = manualLocal.split(',').map(s => s.trim()).filter(s => s);
-      const foreignList = manualForeign.split(',').map(s => s.trim()).filter(s => s);
+      const localList = manualLocal.split(/[,\n]/).map(s => s.trim()).filter(s => s);
+      const foreignList = manualForeign.split(/[,\n]/).map(s => s.trim()).filter(s => s);
       
       if (localList.length === 0 && foreignList.length === 0) {
         setError('Enter at least one container number');
@@ -257,31 +268,29 @@ export const BillingPage: React.FC = () => {
                             </button>
                           </div>
 
-                          <div className="space-y-2">
+                          <div className="bg-carbon-900/40 border border-white/5 rounded-2xl overflow-hidden divide-y divide-white/5 shadow-inner">
                             {billContainers.length === 0 ? (
-                              <div className="py-10 text-center border-2 border-dashed border-white/20 rounded-2xl bg-carbon-900 shadow-inner">
-                                <p className="text-[10px] font-mono font-black text-slate-200 uppercase tracking-widest">Awaiting unit assignment</p>
+                              <div className="py-8 text-center bg-carbon-900/10">
+                                <p className="text-[9px] font-mono font-black text-slate-400 uppercase tracking-widest opacity-40">Awaiting units</p>
                               </div>
                             ) : (
                               billContainers.map(c => (
-                                <div key={c.id} className="flex justify-between items-center p-4 bg-carbon-900 border border-white/10 rounded-xl shadow-inner group transition-all hover:border-white/30">
-                                  <div className="flex flex-col">
-                                    <h4 className="text-[14px] font-display font-black text-white tracking-tight transition-colors uppercase leading-tight">
-                                      {c.number} - {c.localReference || 'NO-REF'}
-                                    </h4>
-                                  </div>
-                                  <div className="flex gap-1">
+                                <div key={c.id} className="flex justify-between items-center py-1.5 px-3 hover:bg-white/5 transition-all group">
+                                  <span className="text-[10px] font-mono font-black text-white uppercase tracking-tight">
+                                    {c.localReference ? `${c.localReference} - ` : ''}{c.number}
+                                  </span>
+                                  <div className="flex gap-0 items-center">
                                     <button 
                                       onClick={() => setViewingContainerDetails(c.id)}
-                                      className="p-2.5 text-white hover:text-laser-indigo transition-colors"
+                                      className="p-1.5 text-slate-500 hover:text-white transition-colors"
                                     >
-                                      <Info size={18} />
+                                      <Info size={14} />
                                     </button>
                                     <button 
                                       onClick={() => removeContainerFromInvoice(inv.id, c.id)}
-                                      className="p-2.5 text-rose-500 hover:text-rose-600 transition-colors"
+                                      className="p-1.5 text-rose-500/50 hover:text-rose-400 transition-colors"
                                     >
-                                      <X size={20} />
+                                      <X size={16} />
                                     </button>
                                   </div>
                                 </div>
@@ -414,21 +423,21 @@ export const BillingPage: React.FC = () => {
                       className="space-y-4 pt-2"
                     >
                       <div className="space-y-2">
-                        <label className="text-[9px] font-black text-sky-400 uppercase tracking-widest ml-1">Local Units (CSV)</label>
+                        <label className="text-[9px] font-black text-sky-400 uppercase tracking-widest ml-1">Local Units (List)</label>
                         <textarea 
                           value={manualLocal}
                           onChange={(e) => setManualLocal(e.target.value)}
-                          placeholder="ABC-123, DEF-456..."
-                          className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-3 text-[12px] font-mono text-white placeholder-slate-700 focus:outline-none focus:border-sky-500/50 transition-all uppercase h-20"
+                          placeholder="REF-1 - OOLU-123456-7 (OR JUST NUMBER)"
+                          className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-3 text-[12px] font-mono text-white placeholder-slate-700 focus:outline-none focus:border-sky-500/50 transition-all h-24"
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">Foreign Units (CSV)</label>
+                        <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">Foreign Units (List)</label>
                         <textarea 
                           value={manualForeign}
                           onChange={(e) => setManualForeign(e.target.value)}
-                          placeholder="XYZ-789..."
-                          className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-3 text-[12px] font-mono text-white placeholder-slate-700 focus:outline-none focus:border-emerald-500/50 transition-all uppercase h-20"
+                          placeholder="REF-2 - OOLU-789012-3 (OR JUST NUMBER)"
+                          className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-3 text-[12px] font-mono text-white placeholder-slate-700 focus:outline-none focus:border-emerald-500/50 transition-all h-24"
                         />
                       </div>
                     </motion.div>

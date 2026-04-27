@@ -55,6 +55,7 @@ interface StoreContextType {
   undoInvoiceArchived: (invoiceId: string) => Promise<void>;
   bulkUndoInvoiceBilled: (ids: string[]) => Promise<void>;
   bulkUndoInvoiceArchived: (ids: string[]) => Promise<void>;
+  updateContainerData: (id: string, number: string, localReference: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const StoreContext = createContext<StoreContextType | null>(null);
@@ -317,14 +318,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const containerIds: string[] = [];
 
       // Create Local Containers
-      localNumbers.forEach(num => {
-        if (!num.trim()) return;
+      localNumbers.forEach(entry => {
+        if (!entry.trim()) return;
+        let reference = entry.trim();
+        let number = reference;
+
+        // Split by the middle " - " separator
+        if (entry.includes(' - ')) {
+          const parts = entry.split(' - ');
+          reference = parts[0].trim();
+          number = parts.slice(1).join(' - ').trim();
+        }
+
         const newId = doc(collection(db, 'containers')).id;
         containerIds.push(newId);
         batch.set(doc(db, 'containers', newId), {
-          number: num.trim().toUpperCase(),
+          number,
           type: 'Local',
-          localReference: num.trim().toUpperCase(),
+          localReference: reference,
           status: 'Billing',
           createdAt: serverTime,
           updatedAt: serverTime,
@@ -340,14 +351,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
 
       // Create Foreign Containers
-      foreignNumbers.forEach(num => {
-        if (!num.trim()) return;
+      foreignNumbers.forEach(entry => {
+        if (!entry.trim()) return;
+        let reference = entry.trim();
+        let number = reference;
+
+        // Split by the middle " - " separator
+        if (entry.includes(' - ')) {
+          const parts = entry.split(' - ');
+          reference = parts[0].trim();
+          number = parts.slice(1).join(' - ').trim();
+        }
+
         const newId = doc(collection(db, 'containers')).id;
         containerIds.push(newId);
         batch.set(doc(db, 'containers', newId), {
-          number: num.trim().toUpperCase(),
+          number,
           type: 'Foreign',
-          localReference: null,
+          localReference: reference === number ? null : reference,
           status: 'Billing',
           createdAt: serverTime,
           updatedAt: serverTime,
@@ -750,6 +771,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const updateContainerData = async (id: string, number: string, localReference: string) => {
+    try {
+      await updateDoc(doc(db, 'containers', id), {
+        number,
+        localReference: localReference || null,
+        updatedAt: serverTimestamp()
+      });
+      return { success: true };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `containers/${id}`);
+      return { success: false, error: 'Failed to update' };
+    }
+  };
+
   const value = {
     state,
     user,
@@ -780,7 +815,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     undoInvoiceBilled,
     undoInvoiceArchived,
     bulkUndoInvoiceBilled,
-    bulkUndoInvoiceArchived
+    bulkUndoInvoiceArchived,
+    updateContainerData
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

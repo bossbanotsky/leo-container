@@ -51,10 +51,15 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
   const filteredContainers = useStore().state.containers.filter(c => c.status === tab);
   
   const displayedContainers = useMemo(() => {
-    return filteredContainers.filter(c => 
-      c.number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.localReference?.toLowerCase().includes(searchQuery.toLowerCase())
-    ).sort((a, b) => b.updatedAt - a.updatedAt);
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const searchNormalized = normalize(searchQuery);
+    
+    return filteredContainers.filter(c => {
+      if (!searchQuery) return true;
+      const numNormalized = normalize(c.number);
+      const refNormalized = c.localReference ? normalize(c.localReference) : '';
+      return numNormalized.includes(searchNormalized) || refNormalized.includes(searchNormalized);
+    }).sort((a, b) => b.updatedAt - a.updatedAt);
   }, [filteredContainers, searchQuery]);
 
   const toggleSelect = (id: string, e?: React.MouseEvent) => {

@@ -15,10 +15,21 @@ export const ArchivePage: React.FC = () => {
   const archivedInvoices = state.invoices.filter(i => i.status === 'Archived');
 
   const displayedInvoices = useMemo(() => {
-    return archivedInvoices.filter(i => 
-      i.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      state.containers.filter(c => i.containerIds.includes(c.id)).some(c => c.number.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const searchNormalized = normalize(searchQuery);
+
+    return archivedInvoices.filter(i => {
+      if (!searchQuery) return true;
+      const invNormalized = normalize(i.invoiceNumber);
+      const hasMatchingContainer = state.containers
+        .filter(c => i.containerIds.includes(c.id))
+        .some(c => 
+          normalize(c.number).includes(searchNormalized) || 
+          (c.localReference && normalize(c.localReference).includes(searchNormalized))
+        );
+      
+      return invNormalized.includes(searchNormalized) || hasMatchingContainer;
+    });
   }, [archivedInvoices, searchQuery, state.containers]);
 
   const toggleSelect = (id: string, e?: React.MouseEvent) => {
@@ -177,19 +188,17 @@ export const ArchivePage: React.FC = () => {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="p-6 space-y-4">
-                          <div className="space-y-2">
+                          <div className="bg-carbon-900/40 border border-white/5 rounded-2xl overflow-hidden divide-y divide-white/5 shadow-inner">
                             {billContainers.map(c => (
-                              <div key={c.id} className="flex justify-between items-center p-4 bg-carbon-900 border border-white/10 rounded-xl shadow-inner transition-all hover:border-white/40">
-                                <div className="flex flex-col">
-                                  <h4 className="text-[14px] font-display font-black text-white tracking-tight transition-colors uppercase leading-tight">
-                                    {c.number} - {c.localReference || 'NO-REF'}
-                                  </h4>
-                                </div>
+                              <div key={c.id} className="flex justify-between items-center py-1.5 px-3 hover:bg-white/5 transition-all group">
+                                <span className="text-[10px] font-mono font-black text-white uppercase tracking-tight">
+                                  {c.localReference ? `${c.localReference} - ` : ''}{c.number}
+                                </span>
                                 <button 
                                   onClick={() => setViewingContainerDetails(c.id)}
-                                  className="p-2 text-white hover:text-laser-indigo transition-colors"
+                                  className="p-1.5 text-slate-500 hover:text-white transition-colors"
                                 >
-                                  <Info size={18} />
+                                  <Info size={14} />
                                 </button>
                               </div>
                             ))}
