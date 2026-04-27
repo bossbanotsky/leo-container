@@ -2,10 +2,11 @@ import React, { useState, useRef } from 'react';
 import { ContainerRepair } from '../types';
 import { useStore } from '../store/StoreContext';
 import { uploadMedia } from '../services/CloudinaryService';
-import { Image, Video, Upload, Trash2, CheckCircle, Clock, Download, X } from 'lucide-react';
+import { Image, Video, Upload, Trash2, CheckCircle, Clock, Download, X, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { compressImage, compressVideo, getVideoDuration, getOptimizedMediaUrl } from '../lib/mediaUtils';
+import { InAppCamera } from './InAppCamera';
 
 interface RepairMediaSectionProps {
   containerId: string;
@@ -24,6 +25,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
   const [activePhase, setActivePhase] = useState<'before' | 'after'>('before');
   const [selectedMedia, setSelectedMedia] = useState<{ type: 'image' | 'video', url: string, phase?: 'before' | 'after', videoThumbnail?: string | null } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video', url?: string } | null>(null);
+  const [cameraMode, setCameraMode] = useState<'video' | 'image' | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   if (!repair) {
@@ -46,8 +48,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
     );
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'image', phase: 'before' | 'after') => {
-    const files = Array.from(e.target.files || []) as File[];
+  const processFiles = async (files: File[], type: 'video' | 'image', phase: 'before' | 'after') => {
     if (files.length === 0) return;
 
     setIsUploading(true);
@@ -55,17 +56,26 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
     try {
       if (type === 'video') {
         const file = files[0];
-        const duration = await getVideoDuration(file);
-        if (duration > 120) {
-            throw new Error("Video must be 2 minutes or less");
+        try {
+          const duration = await getVideoDuration(file);
+          if (duration > 120) {
+              throw new Error("Video must be 2 minutes or less");
+          }
+        } catch(e) {
+          console.warn("Could not determine duration, proceeding with compression");
         }
-        setUploadProgress('Compressing Video...');
+        
+        const originalSizeMB = Math.round(file.size / (1024 * 1024));
+        setUploadProgress(`Compressing Video...`);
         let fileToUpload = await compressVideo(file, (ratio) => {
-            setUploadProgress('Compressing Video...');
+            setUploadProgress(`Optimizing size...`);
             setPercentProgress(Math.round(ratio * 100));
         });
+        
+        const compressedSizeMB = Math.round(fileToUpload.size / (1024 * 1024));
+        const compressedLabel = originalSizeMB > compressedSizeMB ? `${originalSizeMB}MB → ${compressedSizeMB}MB compressed ✔` : 'Compression skipped';
 
-        setUploadProgress('Uploading to Server...');
+        setUploadProgress(`Uploading... (${compressedLabel})`);
         setPercentProgress(0);
         const folder = `containers/${containerNumber}/${phase}`;
         const url = await uploadMedia(fileToUpload, folder, (progress) => {
@@ -74,6 +84,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
         setUploadProgress('Processing...');
         setPercentProgress(100);
         await updateRepairMedia(repair.id, phase, type, url);
+        setUploadProgress('Upload complete');
       } else {
         const currentImagesCount = repair[`${phase}Media`].images.length;
         const allowedSpace = 10 - currentImagesCount;
@@ -101,17 +112,27 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
         }
         setUploadProgress('Processing...');
         setPercentProgress(100);
+        setUploadProgress('Upload complete');
       }
     } catch (error) {
       console.error('Upload failed:', error);
       alert('Upload failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      // Wait for user to dismiss alert, then reset (the Finally block handles reset)
     } finally {
-      setIsUploading(false);
-      setUploadProgress('');
-      setPercentProgress(0);
-      if (e.target) e.target.value = ''; // Reset input
+      setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress('');
+        setPercentProgress(0);
+      }, 1500); // give time to see 'upload complete'
     }
   };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'image', phase: 'before' | 'after') => {
+    const files = Array.from(e.target.files || []) as File[];
+    await processFiles(files, type, phase);
+    if (e.target) e.target.value = ''; // Reset input
+  };
+
 
   const isCompleted = repair.status === 'completed';
 
@@ -190,7 +211,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                     onClick={() => setSelectedMedia({ type: 'video', url: repair[`${activePhase}Media`].video!, phase: activePhase, videoThumbnail: repair[`${activePhase}Media`].videoThumbnail })}
                     alt="Video thumbnail"
                   />
-                  {!isCompleted && (
+                  <div>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -200,7 +221,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                     >
                       <Trash2 className="w-4 h-4 text-white" />
                     </button>
-                  )}
+                  </div>
                 </>
               ) : (
                 <div className="text-center">
@@ -209,16 +230,24 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                 </div>
               )}
               {!isCompleted && !repair[`${activePhase}Media`].video && (
-                <label className="absolute inset-0 cursor-pointer flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <input 
-                    type="file" 
-                    accept="video/*" 
-                    className="hidden" 
-                    onChange={(e) => handleFileUpload(e, 'video', activePhase)}
-                    disabled={isUploading}
-                  />
-                  <Upload className="w-6 h-6 text-white" />
-                </label>
+                <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity gap-4">
+                  <button 
+                    onClick={() => setCameraMode('video')}
+                    className="p-4 bg-laser-indigo rounded-full hover:scale-110 transition-transform text-white shadow-xl shadow-laser-indigo/20"
+                  >
+                    <Camera className="w-6 h-6" />
+                  </button>
+                  <label className="p-4 bg-carbon-700 rounded-full hover:scale-110 hover:bg-carbon-600 transition-all text-white cursor-pointer shadow-xl">
+                    <input 
+                      type="file" 
+                      accept="video/*" 
+                      className="hidden" 
+                      onChange={(e) => handleFileUpload(e, 'video', activePhase)}
+                      disabled={isUploading}
+                    />
+                    <Upload className="w-6 h-6" />
+                  </label>
+                </div>
               )}
             </div>
           </div>
@@ -239,17 +268,15 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                   <img src={getOptimizedMediaUrl(img, 'image', { isThumbnail: true })} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2">
                     <div className="flex justify-end gap-1">
-                      {!isCompleted && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirm({ type: 'image', url: img });
-                          }}
-                          className="bg-black/60 p-1.5 rounded text-slate-300 hover:text-rose-500 hover:bg-rose-500/20 transition-colors"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirm({ type: 'image', url: img });
+                        }}
+                        className="bg-black/60 p-1.5 rounded text-slate-300 hover:text-rose-500 hover:bg-rose-500/20 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                       <a
                         href={getOptimizedMediaUrl(img, 'image', { asDownload: true })}
                         download
@@ -265,17 +292,28 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                 </div>
               ))}
               {!isCompleted && repair[`${activePhase}Media`].images.length < 10 && (
-                <label className="aspect-square bg-carbon-800 border-2 border-dashed border-white/10 rounded-lg flex items-center justify-center cursor-pointer hover:border-laser-indigo/50 transition-all group">
-                   <input 
-                    type="file" 
-                    accept="image/*" 
-                    multiple
-                    className="hidden" 
-                    onChange={(e) => handleFileUpload(e, 'image', activePhase)}
-                    disabled={isUploading}
-                  />
-                  <Upload className="w-4 h-4 text-slate-600 group-hover:text-laser-indigo" />
-                </label>
+                <div className="aspect-square bg-carbon-800 border-2 border-dashed border-white/10 rounded-lg flex flex-col items-center justify-center gap-2 group hover:border-laser-indigo/50 transition-all">
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setCameraMode('image')}
+                      className="p-2.5 bg-laser-indigo rounded-full hover:scale-110 transition-transform text-white shadow-xl shadow-laser-indigo/20"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                    <label className="p-2.5 bg-carbon-700 rounded-full hover:scale-110 hover:bg-carbon-600 transition-all text-white cursor-pointer shadow-xl">
+                       <input 
+                        type="file" 
+                        accept="image/*" 
+                        multiple
+                        className="hidden" 
+                        onChange={(e) => handleFileUpload(e, 'image', activePhase)}
+                        disabled={isUploading}
+                      />
+                      <Upload className="w-4 h-4" />
+                    </label>
+                  </div>
+                  <span className="text-[9px] text-slate-500 font-bold tracking-widest uppercase">Add Media</span>
+                </div>
               )}
             </div>
           </div>
@@ -358,6 +396,14 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                 >
                   <Download className="w-4 h-4" /> Download Original
                 </a>
+                <button
+                  onClick={() => {
+                    setDeleteConfirm({ type: selectedMedia.type, url: selectedMedia.url });
+                  }}
+                  className="bg-rose-500/20 hover:bg-rose-500 text-rose-200 hover:text-white px-6 py-2 rounded-full text-sm font-bold flex items-center gap-2 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete Permanently
+                </button>
                 {!isCompleted && selectedMedia.type === 'video' && (
                    <button
                      onClick={() => {
@@ -371,16 +417,6 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                    >
                      <Image className="w-4 h-4" /> Set as Thumbnail
                    </button>
-                )}
-                {!isCompleted && (
-                  <button
-                    onClick={() => {
-                      setDeleteConfirm({ type: selectedMedia.type, url: selectedMedia.url });
-                    }}
-                    className="bg-rose-500/20 hover:bg-rose-500 text-rose-200 hover:text-white px-6 py-2 rounded-full text-sm font-bold flex items-center gap-2 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" /> Delete
-                  </button>
                 )}
               </div>
             </motion.div>
@@ -431,6 +467,17 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
           </motion.div>
         )}
       </AnimatePresence>
+
+      {cameraMode && (
+        <InAppCamera
+          mode={cameraMode}
+          onClose={() => setCameraMode(null)}
+          onCapture={async (file) => {
+            setCameraMode(null);
+            await processFiles([file], cameraMode, activePhase);
+          }}
+        />
+      )}
     </div>
   );
 };

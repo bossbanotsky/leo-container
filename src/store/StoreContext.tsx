@@ -266,6 +266,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteContainer = async (id: string) => {
     try {
       const batch = writeBatch(db);
+      
+      // Find associated repairs
+      const associatedRepairs = state.repairs.filter(r => r.containerId === id);
+      
+      // Delete repairs from Firestore
+      associatedRepairs.forEach(r => {
+        batch.delete(doc(db, 'containerRepairs', r.id));
+      });
+
+      // Delete container from Firestore
       batch.delete(doc(db, 'containers', id));
       
       // Remove from any invoice
@@ -277,7 +287,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       });
 
+      // Commit Firestore changes first
       await batch.commit();
+
+      // Cleanup media from Cloudinary (asynchronous, after DB cleanup)
+      for (const repair of associatedRepairs) {
+        const urls = [
+          ...repair.beforeMedia.images,
+          ...repair.afterMedia.images,
+        ];
+        if (repair.beforeMedia.video) urls.push(repair.beforeMedia.video);
+        if (repair.afterMedia.video) urls.push(repair.afterMedia.video);
+
+        for (const url of urls) {
+          try {
+            await deleteMedia(url);
+          } catch (e) {
+            console.error(`Failed to delete orphaned media ${url}:`, e);
+          }
+        }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `containers/${id}`);
     }
@@ -286,8 +315,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const bulkDeleteContainers = async (ids: string[]) => {
     try {
       const batch = writeBatch(db);
+      const allAssociatedRepairs: ContainerRepair[] = [];
       
       ids.forEach(id => {
+        // Find associated repairs
+        const associatedRepairs = state.repairs.filter(r => r.containerId === id);
+        allAssociatedRepairs.push(...associatedRepairs);
+        
+        // Delete repairs from Firestore
+        associatedRepairs.forEach(r => {
+          batch.delete(doc(db, 'containerRepairs', r.id));
+        });
+
+        // Delete container from Firestore
         batch.delete(doc(db, 'containers', id));
         
         // Remove from any invoice
@@ -301,6 +341,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
       
       await batch.commit();
+
+      // Cleanup media from Cloudinary
+      for (const repair of allAssociatedRepairs) {
+        const urls = [
+          ...repair.beforeMedia.images,
+          ...repair.afterMedia.images,
+        ];
+        if (repair.beforeMedia.video) urls.push(repair.beforeMedia.video);
+        if (repair.afterMedia.video) urls.push(repair.afterMedia.video);
+
+        for (const url of urls) {
+          try {
+            await deleteMedia(url);
+          } catch (e) {
+            console.error(`Failed to bulk delete orphaned media ${url}:`, e);
+          }
+        }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'bulk-delete-containers');
     }
@@ -924,6 +982,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const currentMedia = repair[mediaKey];
 
       if (type === 'video') {
+        const oldVideo = currentMedia.video;
         const updateData: any = {
           [`${mediaKey}.video`]: url
         };
@@ -931,6 +990,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           updateData[`${mediaKey}.videoThumbnail`] = videoThumbnail;
         }
         await updateDoc(doc(db, 'containerRepairs', repairId), updateData);
+        
+        // Delete old video if it's being replaced
+        if (oldVideo && oldVideo !== url) {
+          try {
+            await deleteMedia(oldVideo);
+          } catch (e) {
+            console.error('Failed to delete replaced video from Cloudinary:', e);
+          }
+        }
       } else {
         // Enforce max 10 images
         if (currentMedia.images.length >= 10) return;

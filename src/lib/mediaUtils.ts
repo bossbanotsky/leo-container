@@ -40,6 +40,26 @@ export const compressImage = async (file: File): Promise<File> => {
 
 export const compressVideo = async (file: File, onProgress?: (ratio: number) => void): Promise<File> => {
   try {
+    const sizeMB = file.size / (1024 * 1024);
+    
+    // 🟢 If file < 40MB: Keep 720p, Only optimize bitrate
+    // 🟠 If file 40MB–100MB: Convert to 720p, Medium-low bitrate
+    // 🔴 If file > 100MB: Convert to 480p, Aggressive bitrate reduction, Keep FPS 30
+    
+    // If file is already reasonably small (< 5MB), skip compression to save time
+    if (sizeMB < 5) return file;
+
+    let scale = "scale=-2:720";
+    let videoBitrate = "2000k";
+    
+    if (sizeMB > 100) {
+      scale = "scale=-2:480";
+      videoBitrate = "800k";
+    } else if (sizeMB >= 40) {
+      scale = "scale=-2:720";
+      videoBitrate = "1200k";
+    }
+
     const _ffmpeg = await loadFFmpeg();
     const inputName = 'input.mp4';
     const outputName = 'output.mp4';
@@ -52,18 +72,24 @@ export const compressVideo = async (file: File, onProgress?: (ratio: number) => 
       });
     }
 
-    // -i input.mp4 -vf scale=-1:720 -b:v 1000k -preset fast output.mp4
     await _ffmpeg.exec([
       '-i', inputName,
-      '-vf', 'scale=-1:720',
-      '-b:v', '1000k',
-      '-preset', 'fast',
+      '-c:v', 'libx264',
+      '-vf', `${scale},fps=30`, // Keep FPS 30
+      '-preset', 'ultrafast', // ultrafast for web
+      '-profile:v', 'baseline',
+      '-b:v', videoBitrate,
+      '-c:a', 'aac',
+      '-b:a', '96k',
       outputName
     ]);
     
     const data = await _ffmpeg.readFile(outputName);
     const compressedBlob = new Blob([data], { type: 'video/mp4' });
     
+    const compressedFile = new File([compressedBlob], `compressed_${file.name.replace(/\.[^/.]+$/, "")}.mp4`, { type: 'video/mp4' });
+    const compressedSize = compressedFile.size / (1024 * 1024);
+
     // Clean up
     await _ffmpeg.deleteFile(inputName);
     await _ffmpeg.deleteFile(outputName);
@@ -71,7 +97,12 @@ export const compressVideo = async (file: File, onProgress?: (ratio: number) => 
         _ffmpeg.off('progress', () => {});
     }
 
-    return new File([compressedBlob], outputName, { type: 'video/mp4' });
+    // If somehow the "compressed" file is larger, return the original
+    if (compressedSize >= sizeMB) {
+      return file;
+    }
+
+    return compressedFile;
   } catch (error) {
     console.error('Video compression failed', error);
     if (file.size > 30 * 1024 * 1024) {

@@ -20,7 +20,8 @@ export const uploadMedia = async (file: File, folder: string, onProgress?: (prog
           const data = JSON.parse(xhr.responseText);
           resolve(data.url);
         } catch (e) {
-          reject(new Error('Failed to parse response JSON'));
+          console.error("Failed to parse response JSON. Raw response Text:", xhr.responseText);
+          reject(new Error('Failed to parse response JSON: ' + xhr.responseText.substring(0, 50)));
         }
       } else {
         let errorMessage = `Upload failed (${xhr.status})`;

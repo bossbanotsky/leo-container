@@ -57,12 +57,17 @@ async function startServer() {
       // Upload to Cloudinary
       let result;
       if (resourceType === 'video') {
-        result = await cloudinary.uploader.upload_large(file.path, {
-          resource_type: resourceType,
-          folder,
-          use_filename: false,
-          unique_filename: true,
-          chunk_size: 6000000 // 6MB chunks
+        result = await new Promise((resolve, reject) => {
+          cloudinary.uploader.upload_large(file.path, {
+            resource_type: resourceType,
+            folder,
+            use_filename: false,
+            unique_filename: true,
+            chunk_size: 6000000 // 6MB chunks
+          }, (error, res) => {
+            if (error) return reject(error);
+            resolve(res);
+          });
         });
       } else {
         result = await cloudinary.uploader.upload(file.path, {
