@@ -96,11 +96,15 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
 
         let uploadedCount = 0;
         for (const file of filesToProcess) {
-           setUploadProgress(`Compressing Image ${uploadedCount + 1} of ${filesToProcess.length}...`);
-           setPercentProgress(50);
-           const fileToUpload = await compressImage(file);
+           const originalSizeKB = Math.round(file.size / 1024);
+           setUploadProgress(`Compressing Image ${uploadedCount + 1}/${filesToProcess.length}...`);
+           setPercentProgress(20);
            
-           setUploadProgress(`Uploading Image ${uploadedCount + 1} of ${filesToProcess.length}...`);
+           const fileToUpload = await compressImage(file);
+           const compressedSizeKB = Math.round(fileToUpload.size / 1024);
+           const compressionLabel = originalSizeKB > compressedSizeKB ? `${originalSizeKB}KB → ${compressedSizeKB}KB ✔` : 'Already optimized';
+           
+           setUploadProgress(`Uploading Image ${uploadedCount + 1}/${filesToProcess.length}... (${compressionLabel})`);
            setPercentProgress(0);
            const folder = `containers/${containerNumber}/${phase}`;
            const url = await uploadMedia(fileToUpload, folder, (progress) => {

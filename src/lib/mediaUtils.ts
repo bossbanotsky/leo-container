@@ -21,17 +21,22 @@ const toBlobURL = async (url: string, mimeType: string) => {
 };
 
 export const compressImage = async (file: File): Promise<File> => {
+  // 720p Logic for Images (User requested 720px max):
+  // We limit the longest dimension to 720px as requested.
+  // We also force conversion to WebP for better compression.
   const options = {
-    maxSizeMB: 0.8,
-    maxWidthOrHeight: 1280,
+    maxSizeMB: 0.8, // Target size under 800KB
+    maxWidthOrHeight: 720, // 720px long-side limit
     useWebWorker: true,
     fileType: 'image/webp' as any,
-    initialQuality: 0.8
+    initialQuality: 0.85 // Slightly higher quality than default
   };
   
   try {
     const compressedBlob = await imageCompression(file, options);
-    return new File([compressedBlob], file.name.replace(/\.[^/.]+$/, "") + ".webp", { type: 'image/webp' });
+    // Ensure we keep a webp extension
+    const newName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
+    return new File([compressedBlob], newName, { type: 'image/webp' });
   } catch (error) {
     console.error('Image compression failed', error);
     return file; // Fallback to original
