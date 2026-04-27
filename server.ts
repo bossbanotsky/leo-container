@@ -45,7 +45,14 @@ async function startServer() {
         return res.status(400).json({ error: 'File and folder are required' });
       }
 
-      const resourceType = file.mimetype.startsWith('video/') ? 'video' : 'image';
+      const isVideo = file.mimetype.startsWith('video/') || 
+                      file.originalname.toLowerCase().endsWith('.mp4') || 
+                      file.originalname.toLowerCase().endsWith('.webm') || 
+                      file.originalname.toLowerCase().endsWith('.mov');
+                      
+      const resourceType = isVideo ? 'video' : 'image';
+
+      console.log(`Uploading to Cloudinary: ${file.originalname} (${file.mimetype}, ${Math.round(file.size / 1024)}KB) as ${resourceType} to folder ${folder}`);
 
       // Configure Cloudinary per request to ensure latest env variables are used
       cloudinary.config({

@@ -48,95 +48,101 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
     );
   }
 
-  const processFiles = async (files: File[], type: 'video' | 'image', phase: 'before' | 'after') => {
+  const processFiles = async (files: File[], phase: 'before' | 'after', typeHint?: 'video' | 'image') => {
     if (files.length === 0) return;
 
     setIsUploading(true);
     setPercentProgress(0);
     try {
-      if (type === 'video') {
-        const file = files[0];
-        try {
-          const duration = await getVideoDuration(file);
-          if (duration > 120) {
-              throw new Error("Video must be 2 minutes or less");
+      for (const file of files) {
+        // Detect video based on actual file type OR the provided hint
+        const isVideo = file.type.startsWith('video/') || typeHint === 'video' || (file.name.toLowerCase().endsWith('.mp4') || file.name.toLowerCase().endsWith('.webm'));
+        
+        console.log(`Processing file: ${file.name}, size: ${Math.round(file.size/1024)}KB, type: ${file.type}, isVideo detected: ${isVideo}, hint: ${typeHint}`);
+
+        if (isVideo) {
+          try {
+            const duration = await getVideoDuration(file);
+            if (duration > 120) {
+                throw new Error("Video must be 2 minutes or less");
+            }
+          } catch(e) {
+            console.warn("Could not determine duration, proceeding with compression");
           }
-        } catch(e) {
-          console.warn("Could not determine duration, proceeding with compression");
-        }
-        
-        const originalSizeMB = Math.round(file.size / (1024 * 1024));
-        setUploadProgress(`Compressing Video...`);
-        let fileToUpload = await compressVideo(file, (ratio) => {
-            setUploadProgress(`Optimizing size...`);
-            setPercentProgress(Math.round(ratio * 100));
-        });
-        
-        const compressedSizeMB = Math.round(fileToUpload.size / (1024 * 1024));
-        const compressedLabel = originalSizeMB > compressedSizeMB ? `${originalSizeMB}MB → ${compressedSizeMB}MB compressed ✔` : 'Compression skipped';
+          
+          const originalSizeMB = Math.round(file.size / (1024 * 1024));
+          setUploadProgress(`Compressing Video...`);
+          let fileToUpload = await compressVideo(file, (ratio) => {
+              setUploadProgress(`Optimizing size...`);
+              setPercentProgress(Math.round(ratio * 100));
+          });
+          
+          const compressedSizeMB = Math.round(fileToUpload.size / (1024 * 1024));
+          const compressedLabel = originalSizeMB > compressedSizeMB ? `${originalSizeMB}MB → ${compressedSizeMB}MB compressed ✔` : 'Compression skipped';
 
-        setUploadProgress(`Uploading... (${compressedLabel})`);
-        setPercentProgress(0);
-        const folder = `containers/${containerNumber}/${phase}`;
-        const url = await uploadMedia(fileToUpload, folder, (progress) => {
-          setPercentProgress(progress);
-        });
-        setUploadProgress('Processing...');
-        setPercentProgress(100);
-        await updateRepairMedia(repair.id, phase, type, url);
-        setUploadProgress('Upload complete');
-      } else {
-        const currentImagesCount = repair[`${phase}Media`].images.length;
-        const allowedSpace = 10 - currentImagesCount;
-        const filesToProcess = files.slice(0, allowedSpace);
-        
-        if (filesToProcess.length === 0) {
-            throw new Error('Maximum of 10 images allowed.');
-        }
+          setUploadProgress(`Uploading Video... (${compressedLabel})`);
+          setPercentProgress(0);
+          const folder = `containers/${containerNumber}/${phase}`;
+          const url = await uploadMedia(fileToUpload, folder, (progress) => {
+            setPercentProgress(progress);
+          });
+          setUploadProgress('Processing Video...');
+          setPercentProgress(100);
+          await updateRepairMedia(repair.id, phase, 'video', url);
+        } else {
+          // It's an image
+          const currentImagesCount = repair[`${phase}Media`].images.length;
+          if (currentImagesCount >= 10) {
+            console.warn('Skipping extra images - reached limit of 10');
+            continue;
+          }
 
-        let uploadedCount = 0;
-        for (const file of filesToProcess) {
-           const originalSizeKB = Math.round(file.size / 1024);
-           setUploadProgress(`Compressing Image ${uploadedCount + 1}/${filesToProcess.length}...`);
-           setPercentProgress(20);
-           
-           const fileToUpload = await compressImage(file);
-           const compressedSizeKB = Math.round(fileToUpload.size / 1024);
-           const compressionLabel = originalSizeKB > compressedSizeKB ? `${originalSizeKB}KB → ${compressedSizeKB}KB ✔` : 'Already optimized';
-           
-           setUploadProgress(`Uploading Image ${uploadedCount + 1}/${filesToProcess.length}... (${compressionLabel})`);
-           setPercentProgress(0);
-           const folder = `containers/${containerNumber}/${phase}`;
-           const url = await uploadMedia(fileToUpload, folder, (progress) => {
-             setPercentProgress(progress);
-           });
-           
-           await updateRepairMedia(repair.id, phase, 'image', url);
-           uploadedCount++;
+          const originalSizeKB = Math.round(file.size / 1024);
+          setUploadProgress(`Compressing Image...`);
+          setPercentProgress(20);
+          
+          const fileToUpload = await compressImage(file);
+          const compressedSizeKB = Math.round(fileToUpload.size / 1024);
+          const compressionLabel = originalSizeKB > compressedSizeKB ? `${originalSizeKB}KB → ${compressedSizeKB}KB ✔` : 'Already optimized';
+          
+          setUploadProgress(`Uploading Image... (${compressionLabel})`);
+          setPercentProgress(0);
+          const folder = `containers/${containerNumber}/${phase}`;
+          const url = await uploadMedia(fileToUpload, folder, (progress) => {
+            setPercentProgress(progress);
+          });
+          
+          await updateRepairMedia(repair.id, phase, 'image', url);
         }
-        setUploadProgress('Processing...');
-        setPercentProgress(100);
-        setUploadProgress('Upload complete');
       }
+      setUploadProgress('Upload complete');
     } catch (error) {
       console.error('Upload failed:', error);
       alert('Upload failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
-      // Wait for user to dismiss alert, then reset (the Finally block handles reset)
     } finally {
       setTimeout(() => {
         setIsUploading(false);
         setUploadProgress('');
         setPercentProgress(0);
-      }, 1500); // give time to see 'upload complete'
+      }, 1500); 
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'image', phase: 'before' | 'after') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, phase: 'before' | 'after', typeHint?: 'video' | 'image') => {
     const files = Array.from(e.target.files || []) as File[];
-    await processFiles(files, type, phase);
+    await processFiles(files, phase, typeHint);
     if (e.target) e.target.value = ''; // Reset input
   };
 
+  const handleCloseCamera = React.useCallback(() => {
+    setCameraMode(null);
+  }, []);
+
+  const handleCaptureCamera = React.useCallback(async (file: File) => {
+    const mode = cameraMode;
+    setCameraMode(null);
+    await processFiles([file], activePhase, mode || undefined);
+  }, [activePhase, cameraMode]);
 
   const isCompleted = repair.status === 'completed';
 
@@ -228,29 +234,30 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                   </div>
                 </>
               ) : (
-                <div className="text-center">
-                  <Video className="w-8 h-8 text-slate-700 mx-auto mb-2" />
-                  <p className="text-[9px] text-slate-600 font-black uppercase">No Video Attached</p>
-                </div>
-              )}
-              {!isCompleted && !repair[`${activePhase}Media`].video && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity gap-4">
-                  <button 
-                    onClick={() => setCameraMode('video')}
-                    className="p-4 bg-laser-indigo rounded-full hover:scale-110 transition-transform text-white shadow-xl shadow-laser-indigo/20"
-                  >
-                    <Camera className="w-6 h-6" />
-                  </button>
-                  <label className="p-4 bg-carbon-700 rounded-full hover:scale-110 hover:bg-carbon-600 transition-all text-white cursor-pointer shadow-xl">
-                    <input 
-                      type="file" 
-                      accept="video/*" 
-                      className="hidden" 
-                      onChange={(e) => handleFileUpload(e, 'video', activePhase)}
-                      disabled={isUploading}
-                    />
-                    <Upload className="w-6 h-6" />
-                  </label>
+                <div className="text-center p-4">
+                  <Video className="w-8 h-8 text-slate-700 mx-auto mb-3" />
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-4">No Video Evidence</p>
+                  
+                  {!isCompleted && (
+                    <div className="flex gap-3 justify-center">
+                      <button 
+                        onClick={() => setCameraMode('video')}
+                        className="flex items-center gap-2 px-4 py-2 bg-laser-indigo text-white rounded-lg font-bold text-[10px] uppercase tracking-wider hover:scale-105 transition-transform shadow-lg shadow-laser-indigo/20"
+                      >
+                        <Video className="w-4 h-4" /> Capture
+                      </button>
+                      <label className="flex items-center gap-2 px-4 py-2 bg-carbon-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-wider hover:bg-carbon-600 transition-all cursor-pointer shadow-lg">
+                        <input 
+                          type="file" 
+                          accept="video/*" 
+                          className="hidden" 
+                          onChange={(e) => handleFileUpload(e, activePhase, 'video')}
+                          disabled={isUploading}
+                        />
+                        <Upload className="w-4 h-4" /> Upload
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -310,7 +317,7 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                         accept="image/*" 
                         multiple
                         className="hidden" 
-                        onChange={(e) => handleFileUpload(e, 'image', activePhase)}
+                        onChange={(e) => handleFileUpload(e, activePhase, 'image')}
                         disabled={isUploading}
                       />
                       <Upload className="w-4 h-4" />
@@ -475,11 +482,8 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
       {cameraMode && (
         <InAppCamera
           mode={cameraMode}
-          onClose={() => setCameraMode(null)}
-          onCapture={async (file) => {
-            setCameraMode(null);
-            await processFiles([file], cameraMode, activePhase);
-          }}
+          onClose={handleCloseCamera}
+          onCapture={handleCaptureCamera}
         />
       )}
     </div>

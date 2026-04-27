@@ -10,11 +10,11 @@ interface InAppCameraProps {
 export const InAppCamera: React.FC<InAppCameraProps> = ({ onCapture, onClose, mode }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
-  const [chunks, setChunks] = useState<Blob[]>([]);
 
   const startCamera = useCallback(async () => {
     if (stream) {
@@ -65,7 +65,7 @@ export const InAppCamera: React.FC<InAppCameraProps> = ({ onCapture, onClose, mo
 
   const startRecording = () => {
     if (!stream) return;
-    setChunks([]);
+    chunksRef.current = [];
     
     // Choose format
     let mimeType = 'video/mp4';
@@ -88,14 +88,12 @@ export const InAppCamera: React.FC<InAppCameraProps> = ({ onCapture, onClose, mo
     
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
-        setChunks(prev => [...prev, e.data]);
+        chunksRef.current.push(e.data);
       }
     };
 
     recorder.onstop = () => {
-      const blob = new Blob(recorder.ondataavailable ? chunks : [], { type: recorder.mimeType || 'video/mp4' }); // Fallback mimeType
-      // We will create the blob from chunks state by using a small hack, 
-      // MediaRecorder fires ondataavailable before onstop.
+      // Logic handled in stopRecording with delay
     };
 
     recorder.start(200); // 200ms chunks
@@ -111,12 +109,10 @@ export const InAppCamera: React.FC<InAppCameraProps> = ({ onCapture, onClose, mo
       
       // Delay slightly to ensure all chunks are processed
       setTimeout(() => {
-         setChunks(currentChunks => {
-            const blob = new Blob(currentChunks, { type: mediaRecorderRef.current?.mimeType || 'video/mp4' });
-            const file = new File([blob], `recorded_${Date.now()}.${blob.type.includes('webm') ? 'webm' : 'mp4'}`, { type: blob.type });
-            onCapture(file);
-            return [];
-         });
+         const blob = new Blob(chunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'video/mp4' });
+         const file = new File([blob], `recorded_${Date.now()}.${blob.type.includes('webm') ? 'webm' : 'mp4'}`, { type: blob.type });
+         onCapture(file);
+         chunksRef.current = [];
       }, 500);
     }
   };

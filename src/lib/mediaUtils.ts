@@ -34,9 +34,22 @@ export const compressImage = async (file: File): Promise<File> => {
   
   try {
     const compressedBlob = await imageCompression(file, options);
-    // Ensure we keep a webp extension
-    const newName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
-    return new File([compressedBlob], newName, { type: 'image/webp' });
+    
+    // Ensure we have a valid blob with size
+    if (!compressedBlob || compressedBlob.size === 0) {
+      console.warn('Compression returned empty blob, falling back to original');
+      return file;
+    }
+
+    // Use the actual type returned by the compression tool
+    const finalType = compressedBlob.type || file.type || 'image/jpeg';
+    const extension = finalType.split('/')[1] || 'jpg';
+    
+    // Log the compression stats for debugging
+    console.log(`Image Compressed: ${Math.round(file.size/1024)}KB -> ${Math.round(compressedBlob.size/1024)}KB (${finalType})`);
+    
+    const newName = file.name.replace(/\.[^/.]+$/, "") + "." + extension;
+    return new File([compressedBlob], newName, { type: finalType });
   } catch (error) {
     console.error('Image compression failed', error);
     return file; // Fallback to original
