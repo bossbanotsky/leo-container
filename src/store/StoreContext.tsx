@@ -29,6 +29,7 @@ import { deleteMedia } from '../services/CloudinaryService';
 interface StoreContextType {
   state: AppState;
   user: User | null;
+  userRole: 'admin' | 'coordinator';
   loading: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -901,9 +902,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Determine user role (rudimentary check using email pattern)
+  const userRole: 'admin' | 'coordinator' = user?.email?.toLowerCase().includes('coordinator') ? 'coordinator' : 'admin';
+
   const value = {
     state,
     user,
+    userRole,
     loading,
     login,
     logout,
