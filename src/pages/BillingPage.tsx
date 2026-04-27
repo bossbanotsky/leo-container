@@ -19,8 +19,11 @@ import { ContainerDetailsModal } from '../components/ContainerDetailsModal';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const BillingPage: React.FC = () => {
-  const { state, createInvoice, deleteInvoice, addContainersToInvoice, removeContainerFromInvoice, approveInvoice, bulkDeleteInvoices, bulkApproveInvoices } = useStore();
+  const { state, createInvoice, deleteInvoice, addContainersToInvoice, removeContainerFromInvoice, approveInvoice, bulkDeleteInvoices, bulkApproveInvoices, createManualInvoice } = useStore();
   const [isCreating, setIsCreating] = useState(false);
+  const [createMode, setCreateMode] = useState<'Standard' | 'Manual'>('Standard');
+  const [manualLocal, setManualLocal] = useState('');
+  const [manualForeign, setManualForeign] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [error, setError] = useState('');
@@ -83,10 +86,26 @@ export const BillingPage: React.FC = () => {
     if (!invoiceNumber.trim()) return setError('Invoice Number Required');
     
     setError('');
-    const res = await createInvoice(invoiceNumber.trim().toUpperCase());
+    let res;
+    if (createMode === 'Manual') {
+      const localList = manualLocal.split(',').map(s => s.trim()).filter(s => s);
+      const foreignList = manualForeign.split(',').map(s => s.trim()).filter(s => s);
+      
+      if (localList.length === 0 && foreignList.length === 0) {
+        setError('Enter at least one container number');
+        return;
+      }
+      res = await createManualInvoice(invoiceNumber.trim().toUpperCase(), localList, foreignList);
+    } else {
+      res = await createInvoice(invoiceNumber.trim().toUpperCase());
+    }
+
     if (res.success) {
       setIsCreating(false);
       setInvoiceNumber('');
+      setManualLocal('');
+      setManualForeign('');
+      setCreateMode('Standard');
     } else {
       setError(res.error || 'Failed to initialize invoice');
     }
@@ -100,7 +119,10 @@ export const BillingPage: React.FC = () => {
           <p className="text-[10px] font-mono text-slate-100 font-black uppercase tracking-widest mt-1">Ledger // Drafts</p>
         </div>
         <button 
-          onClick={() => setIsCreating(true)}
+          onClick={() => {
+            setError('');
+            setIsCreating(true);
+          }}
           className="w-12 h-12 flex items-center justify-center bg-laser-indigo text-white rounded-2xl shadow-2xl shadow-laser-indigo/40 hover:scale-105 active:scale-95 transition-all outline-none"
         >
           <Plus size={24} />
@@ -347,19 +369,70 @@ export const BillingPage: React.FC = () => {
                   <X size={20} />
                 </button>
               </div>
-              <form onSubmit={handleCreate} className="p-8 space-y-6">
+
+              <div className="flex bg-carbon-800 m-4 p-1 rounded-xl border border-white/5">
+                <button 
+                  onClick={() => setCreateMode('Standard')}
+                  className={cn(
+                    "flex-1 py-3 text-[9px] font-black rounded-lg transition-all uppercase tracking-[0.2em]",
+                    createMode === 'Standard' ? "bg-laser-indigo text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+                  )}
+                >
+                  Link Link
+                </button>
+                <button 
+                  onClick={() => setCreateMode('Manual')}
+                  className={cn(
+                    "flex-1 py-3 text-[9px] font-black rounded-lg transition-all uppercase tracking-[0.2em]",
+                    createMode === 'Manual' ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+                  )}
+                >
+                  Direct Entry
+                </button>
+              </div>
+
+              <form onSubmit={handleCreate} className="px-8 pb-8 space-y-6">
                 {error && <div className="text-[10px] font-bold text-rose-400 bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 uppercase tracking-widest">{error}</div>}
                 
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Invoice Identifier</label>
-                  <input 
-                    autoFocus
-                    type="text" 
-                    value={invoiceNumber}
-                    onChange={e => setInvoiceNumber(e.target.value.toUpperCase())}
-                    placeholder="E.G. INV-4402"
-                    className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-4 text-[13px] font-mono font-medium text-white placeholder-slate-700 focus:outline-none focus:ring-1 focus:ring-laser-indigo/50 transition-all uppercase tracking-widest"
-                  />
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Invoice Identifier</label>
+                    <input 
+                      autoFocus
+                      type="text" 
+                      value={invoiceNumber}
+                      onChange={e => setInvoiceNumber(e.target.value.toUpperCase())}
+                      placeholder="E.G. INV-4402"
+                      className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-4 text-[13px] font-mono font-medium text-white placeholder-slate-700 focus:outline-none focus:ring-1 focus:ring-laser-indigo/50 transition-all uppercase tracking-widest"
+                    />
+                  </div>
+
+                  {createMode === 'Manual' && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="space-y-4 pt-2"
+                    >
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-sky-400 uppercase tracking-widest ml-1">Local Units (CSV)</label>
+                        <textarea 
+                          value={manualLocal}
+                          onChange={(e) => setManualLocal(e.target.value)}
+                          placeholder="ABC-123, DEF-456..."
+                          className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-3 text-[12px] font-mono text-white placeholder-slate-700 focus:outline-none focus:border-sky-500/50 transition-all uppercase h-20"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">Foreign Units (CSV)</label>
+                        <textarea 
+                          value={manualForeign}
+                          onChange={(e) => setManualForeign(e.target.value)}
+                          placeholder="XYZ-789..."
+                          className="w-full bg-carbon-800 border border-white/10 rounded-xl px-4 py-3 text-[12px] font-mono text-white placeholder-slate-700 focus:outline-none focus:border-emerald-500/50 transition-all uppercase h-20"
+                        />
+                      </div>
+                    </motion.div>
+                  )}
                 </div>
 
                 <div className="flex gap-3">
@@ -372,15 +445,19 @@ export const BillingPage: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-4 bg-white text-black font-black rounded-xl hover:bg-slate-100 transition-all shadow-xl uppercase text-[10px] tracking-widest"
+                    className={cn(
+                      "flex-1 py-4 text-black font-black rounded-xl transition-all shadow-xl uppercase text-[10px] tracking-widest",
+                      createMode === 'Manual' ? "bg-emerald-500 hover:bg-emerald-400" : "bg-white hover:bg-slate-100"
+                    )}
                   >
-                    Initialize
+                    {createMode === 'Manual' ? 'Generate' : 'Initialize'}
                   </button>
                 </div>
               </form>
             </motion.div>
           </motion.div>
         )}
+
 
         {addingToInvoiceId && (
           <motion.div 

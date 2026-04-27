@@ -50,6 +50,7 @@ interface StoreContextType {
   bulkUnapproveInvoices: (ids: string[]) => Promise<void>;
   archiveInvoice: (invoiceId: string) => Promise<void>;
   bulkArchiveInvoices: (ids: string[]) => Promise<void>;
+  createManualInvoice: (invoiceNumber: string, localContainers: string[], foreignContainers: string[]) => Promise<{ success: boolean; error?: string }>;
   undoInvoiceBilled: (invoiceId: string) => Promise<void>;
   undoInvoiceArchived: (invoiceId: string) => Promise<void>;
   bulkUndoInvoiceBilled: (ids: string[]) => Promise<void>;
@@ -300,6 +301,83 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `containers/${containerId}`);
+    }
+  };
+
+  const createManualInvoice = async (invoiceNumber: string, localNumbers: string[], foreignNumbers: string[]) => {
+    if (!user) return { success: false, error: 'User not authenticated' };
+    if (state.invoices.find(i => i.invoiceNumber === invoiceNumber.trim().toUpperCase())) {
+      return { success: false, error: 'Invoice number already exists.' };
+    }
+    
+    try {
+      const batch = writeBatch(db);
+      const timestamp = new Date().getTime();
+      const serverTime = serverTimestamp();
+      const containerIds: string[] = [];
+
+      // Create Local Containers
+      localNumbers.forEach(num => {
+        if (!num.trim()) return;
+        const newId = doc(collection(db, 'containers')).id;
+        containerIds.push(newId);
+        batch.set(doc(db, 'containers', newId), {
+          number: num.trim().toUpperCase(),
+          type: 'Local',
+          localReference: num.trim().toUpperCase(),
+          status: 'Billing',
+          createdAt: serverTime,
+          updatedAt: serverTime,
+          history: [{ status: 'Active', timestamp: timestamp }, { status: 'Repairing', timestamp: timestamp }, { status: 'Repaired', timestamp: timestamp }, { status: 'Billing', timestamp: timestamp }],
+          notes: [{ 
+            id: Math.random().toString(36).substring(2),
+            text: 'Bypassed entry - Quick Invoice', 
+            authorId: user.uid,
+            authorEmail: user.email || 'system',
+            timestamp 
+          }]
+        });
+      });
+
+      // Create Foreign Containers
+      foreignNumbers.forEach(num => {
+        if (!num.trim()) return;
+        const newId = doc(collection(db, 'containers')).id;
+        containerIds.push(newId);
+        batch.set(doc(db, 'containers', newId), {
+          number: num.trim().toUpperCase(),
+          type: 'Foreign',
+          localReference: null,
+          status: 'Billing',
+          createdAt: serverTime,
+          updatedAt: serverTime,
+          history: [{ status: 'Active', timestamp: timestamp }, { status: 'Repairing', timestamp: timestamp }, { status: 'Repaired', timestamp: timestamp }, { status: 'Billing', timestamp: timestamp }],
+          notes: [{ 
+            id: Math.random().toString(36).substring(2),
+            text: 'Bypassed entry - Quick Invoice', 
+            authorId: user.uid,
+            authorEmail: user.email || 'system',
+            timestamp 
+          }]
+        });
+      });
+
+      if (containerIds.length === 0) return { success: false, error: 'No containers provided' };
+
+      const invoiceId = doc(collection(db, 'invoices')).id;
+      batch.set(doc(db, 'invoices', invoiceId), {
+        invoiceNumber: invoiceNumber.trim().toUpperCase(),
+        containerIds,
+        status: 'Draft',
+        createdAt: serverTime,
+        updatedAt: serverTime
+      });
+
+      await batch.commit();
+      return { success: true };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'manual-invoice');
+      return { success: false, error: 'Failed to create manual invoice' };
     }
   };
 
@@ -689,6 +767,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     addContainersToInvoice,
     removeContainerFromInvoice,
     deleteInvoice,
+    createManualInvoice,
     bulkDeleteInvoices,
     markInvoiceBilled,
     bulkMarkInvoicesBilled,
