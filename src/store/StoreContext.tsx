@@ -24,7 +24,7 @@ import {
 } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { differenceInDays } from 'date-fns';
-import { deleteMedia } from '../services/CloudinaryService';
+import { deleteMedia, archiveMedia } from '../services/CloudinaryService';
 
 interface StoreContextType {
   state: AppState;
@@ -61,7 +61,7 @@ interface StoreContextType {
   updateContainerData: (id: string, number: string, localReference: string) => Promise<{ success: boolean; error?: string }>;
   startRepair: (containerId: string) => Promise<{ success: boolean; repairId?: string; error?: string }>;
   completeRepair: (repairId: string) => Promise<void>;
-  updateRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string) => Promise<void>;
+  updateRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string, videoThumbnail?: string) => Promise<void>;
   removeRepairMedia: (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url?: string) => Promise<void>;
 }
 
@@ -538,6 +538,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const invoice = state.invoices.find(i => i.id === invoiceId);
       if (!invoice) return;
 
+      // --- Archiving Media Logic ---
+      const repairsToArchive = state.repairs.filter(r => invoice.containerIds.includes(r.containerId));
+      const urlsToArchive: string[] = [];
+      repairsToArchive.forEach(r => {
+        urlsToArchive.push(...r.beforeMedia.images, ...r.afterMedia.images);
+        if (r.beforeMedia.video) urlsToArchive.push(r.beforeMedia.video);
+        if (r.afterMedia.video) urlsToArchive.push(r.afterMedia.video);
+      });
+      
+      let newUrlsMap: Record<string, string> = {};
+      if (urlsToArchive.length > 0) {
+        try {
+          newUrlsMap = await archiveMedia(urlsToArchive);
+        } catch (e) {
+          console.error("Failed to archive media:", e);
+        }
+      }
+
       const batch = writeBatch(db);
       batch.update(doc(db, 'invoices', invoiceId), {
         status: 'Billed',
@@ -548,6 +566,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         batch.update(doc(db, 'containers', cid), {
           status: 'Billed',
           updatedAt: serverTimestamp()
+        });
+      });
+
+      // Update repairs with new URLs
+      repairsToArchive.forEach(r => {
+        const updateMedia = (media: any) => ({
+          ...media,
+          images: media.images.map((url: string) => newUrlsMap[url] || url),
+          video: media.video ? (newUrlsMap[media.video] || media.video) : null
+        });
+        
+        batch.update(doc(db, 'containerRepairs', r.id), {
+          beforeMedia: updateMedia(r.beforeMedia),
+          afterMedia: updateMedia(r.afterMedia)
         });
       });
 
@@ -562,9 +594,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const batch = writeBatch(db);
       const timestamp = serverTimestamp();
       
+      const allContainerIds = new Set<string>();
+      
       ids.forEach(invoiceId => {
         const invoice = state.invoices.find(i => i.id === invoiceId);
         if (!invoice) return;
+        
+        invoice.containerIds.forEach(id => allContainerIds.add(id));
         
         batch.update(doc(db, 'invoices', invoiceId), {
           status: 'Billed',
@@ -576,6 +612,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             status: 'Billed',
             updatedAt: timestamp
           });
+        });
+      });
+      
+      // --- Archiving Media Logic ---
+      const repairsToArchive = state.repairs.filter(r => allContainerIds.has(r.containerId));
+      const urlsToArchive: string[] = [];
+      repairsToArchive.forEach(r => {
+        urlsToArchive.push(...r.beforeMedia.images, ...r.afterMedia.images);
+        if (r.beforeMedia.video) urlsToArchive.push(r.beforeMedia.video);
+        if (r.afterMedia.video) urlsToArchive.push(r.afterMedia.video);
+      });
+      
+      let newUrlsMap: Record<string, string> = {};
+      if (urlsToArchive.length > 0) {
+        try {
+          newUrlsMap = await archiveMedia(urlsToArchive);
+        } catch (e) {
+          console.error("Failed to bulk archive media:", e);
+        }
+      }
+
+      repairsToArchive.forEach(r => {
+        const updateMedia = (media: any) => ({
+          ...media,
+          images: media.images.map((url: string) => newUrlsMap[url] || url),
+          video: media.video ? (newUrlsMap[media.video] || media.video) : null
+        });
+        
+        batch.update(doc(db, 'containerRepairs', r.id), {
+          beforeMedia: updateMedia(r.beforeMedia),
+          afterMedia: updateMedia(r.afterMedia)
         });
       });
       
@@ -848,7 +915,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const updateRepairMedia = async (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string) => {
+  const updateRepairMedia = async (repairId: string, phase: 'before' | 'after', type: 'video' | 'image', url: string, videoThumbnail?: string) => {
     try {
       const repair = state.repairs.find(r => r.id === repairId);
       if (!repair) return;
@@ -857,9 +924,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const currentMedia = repair[mediaKey];
 
       if (type === 'video') {
-        await updateDoc(doc(db, 'containerRepairs', repairId), {
+        const updateData: any = {
           [`${mediaKey}.video`]: url
-        });
+        };
+        if (videoThumbnail !== undefined) {
+          updateData[`${mediaKey}.videoThumbnail`] = videoThumbnail;
+        }
+        await updateDoc(doc(db, 'containerRepairs', repairId), updateData);
       } else {
         // Enforce max 10 images
         if (currentMedia.images.length >= 10) return;
@@ -882,7 +953,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (type === 'video') {
         await updateDoc(doc(db, 'containerRepairs', repairId), {
-          [`${mediaKey}.video`]: null
+          [`${mediaKey}.video`]: null,
+          [`${mediaKey}.videoThumbnail`]: null
         });
         if (currentMedia.video) {
           try {

@@ -73,3 +73,30 @@ export const deleteMedia = async (url: string): Promise<void> => {
     throw new Error(errorMessage);
   }
 };
+
+export const archiveMedia = async (urls: string[]): Promise<Record<string, string>> => {
+  if (!urls || urls.length === 0) return {};
+
+  const response = await fetch('/api/archive', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ urls }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Archive failed (${response.status})`;
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch(e) {
+      // Ignore
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+  return data.results || {};
+};
+

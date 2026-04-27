@@ -103,6 +103,7 @@ export const getOptimizedMediaUrl = (
     asDownload?: boolean;
     isThumbnail?: boolean;
     isLightbox?: boolean;
+    videoThumbnail?: string | null;
   } = {}
 ) => {
   if (!url.includes('res.cloudinary.com')) return url;
@@ -111,9 +112,9 @@ export const getOptimizedMediaUrl = (
   const parts = url.split('/upload/');
   if (parts.length !== 2) return url;
   
-  // Base optimizations: auto format and eco quality for maximum bandwidth savings
+  let resourcePath = parts[1];
   let transformations = ['f_auto', 'q_auto:eco'];
-  
+
   if (type === 'image') {
     if (options.isThumbnail) {
       transformations.push('c_fill,w_400,h_400'); // Crop small for grid
@@ -123,13 +124,19 @@ export const getOptimizedMediaUrl = (
       transformations.push('c_limit,w_800'); // Default limits
     }
   } else if (type === 'video') {
-    transformations.push('vc_auto'); // Let Cloudinary pick the best video codec
     if (options.isThumbnail) {
-      transformations.push('c_limit,w_640', 'vc_auto:vp9'); // VP9 for web if possible
-    } else if (options.isLightbox) {
-      transformations.push('c_limit,w_1280'); // 720p limit for video lightbox
+      // Force generating a jpg image instead of video player for the thumbnail
+      let offset = options.videoThumbnail || '0';
+      transformations = ['c_fill,w_400,h_400', 'f_jpg', 'q_auto:eco', `so_${offset}`];
+      // strip extension and add .jpg to be safe, though f_jpg should work
+      resourcePath = resourcePath.replace(/\.[^/.]+$/, "") + ".jpg";
     } else {
-      transformations.push('c_limit,w_800');
+      transformations.push('vc_auto'); 
+      if (options.isLightbox) {
+        transformations.push('c_limit,w_1280'); // 720p limit for video lightbox
+      } else {
+        transformations.push('c_limit,w_800');
+      }
     }
   }
 
@@ -138,5 +145,5 @@ export const getOptimizedMediaUrl = (
     transformations = ['fl_attachment', 'f_auto', 'q_auto']; // Use standard auto quality for downloads
   }
   
-  return `${parts[0]}/upload/${transformations.join(',')}/${parts[1]}`;
+  return `${parts[0]}/upload/${transformations.join(',')}/${resourcePath}`;
 };

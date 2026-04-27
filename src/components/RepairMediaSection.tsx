@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ContainerRepair } from '../types';
 import { useStore } from '../store/StoreContext';
 import { uploadMedia } from '../services/CloudinaryService';
@@ -22,8 +22,9 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [percentProgress, setPercentProgress] = useState<number>(0);
   const [activePhase, setActivePhase] = useState<'before' | 'after'>('before');
-  const [selectedMedia, setSelectedMedia] = useState<{ type: 'image' | 'video', url: string } | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<{ type: 'image' | 'video', url: string, phase?: 'before' | 'after', videoThumbnail?: string | null } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'image' | 'video', url?: string } | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   if (!repair) {
     return (
@@ -183,10 +184,11 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
             <div className="aspect-video bg-black rounded-xl border-2 border-white/5 flex items-center justify-center relative overflow-hidden group">
               {repair[`${activePhase}Media`].video ? (
                 <>
-                  <video 
-                    src={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video', { isThumbnail: true })} 
+                  <img 
+                    src={getOptimizedMediaUrl(repair[`${activePhase}Media`].video!, 'video', { isThumbnail: true, videoThumbnail: repair[`${activePhase}Media`].videoThumbnail })} 
                     className="w-full h-full object-cover cursor-pointer"
-                    onClick={() => setSelectedMedia({ type: 'video', url: repair[`${activePhase}Media`].video! })}
+                    onClick={() => setSelectedMedia({ type: 'video', url: repair[`${activePhase}Media`].video!, phase: activePhase, videoThumbnail: repair[`${activePhase}Media`].videoThumbnail })}
+                    alt="Video thumbnail"
                   />
                   {!isCompleted && (
                     <button
@@ -337,10 +339,12 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                 />
               ) : (
                 <video 
+                  ref={videoRef}
                   src={getOptimizedMediaUrl(selectedMedia.url, 'video', { isLightbox: true })} 
+                  poster={getOptimizedMediaUrl(selectedMedia.url, 'video', { isThumbnail: true, videoThumbnail: selectedMedia.videoThumbnail })}
                   className="max-w-full max-h-[85vh] rounded-xl shadow-2xl"
                   controls
-                  autoPlay
+                  preload="metadata"
                 />
               )}
               
@@ -354,6 +358,20 @@ export const RepairMediaSection: React.FC<RepairMediaSectionProps> = ({ containe
                 >
                   <Download className="w-4 h-4" /> Download Original
                 </a>
+                {!isCompleted && selectedMedia.type === 'video' && (
+                   <button
+                     onClick={() => {
+                        if (videoRef.current && selectedMedia.phase) {
+                           const time = videoRef.current.currentTime;
+                           updateRepairMedia(repair.id, selectedMedia.phase, 'video', selectedMedia.url, time.toFixed(2));
+                           alert("Thumbnail updated!");
+                        }
+                     }}
+                     className="bg-laser-indigo/20 hover:bg-laser-indigo/40 text-laser-indigo hover:text-white px-6 py-2 rounded-full text-sm font-bold flex items-center gap-2 transition-colors"
+                   >
+                     <Image className="w-4 h-4" /> Set as Thumbnail
+                   </button>
+                )}
                 {!isCompleted && (
                   <button
                     onClick={() => {

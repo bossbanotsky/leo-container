@@ -40,6 +40,7 @@ export interface Invoice {
 
 export interface MediaData {
   video: string | null;
+  videoThumbnail?: string | null;
   images: string[];
 }
 

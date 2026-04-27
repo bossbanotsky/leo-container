@@ -173,8 +173,10 @@ const CoordinatorMediaPhase: React.FC<{ phase: 'before' | 'after', repair: Conta
           </div>
           <video 
             src={getOptimizedMediaUrl(media.video!, 'video', { isLightbox: true })} 
+            poster={getOptimizedMediaUrl(media.video!, 'video', { isThumbnail: true, videoThumbnail: media.videoThumbnail })}
             className="w-full aspect-video rounded-xl object-cover bg-black"
             controls
+            preload="metadata"
           />
         </div>
       )}

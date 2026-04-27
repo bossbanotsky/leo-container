@@ -103,7 +103,6 @@ async function startServer() {
       }
 
       // Extract public_id and resource_type from Cloudinary URL
-      // Example URL: https://res.cloudinary.com/demo/image/upload/v12345678/folder/filename.jpg
       const match = url.match(/\/res\.cloudinary\.com\/[^\/]+\/(image|video|raw)\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/);
       if (!match) {
         return res.status(400).json({ error: 'Invalid Cloudinary URL' });
@@ -124,6 +123,56 @@ async function startServer() {
     } catch (error: any) {
       console.error('Delete Error Details:', error);
       res.status(500).json({ error: error.message || 'Delete failed' });
+    }
+  });
+
+  // API to archive media
+  app.post("/api/archive", express.json(), async (req: express.Request, res: express.Response) => {
+    try {
+      if (!process.env.VITE_CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+        return res.status(500).json({ error: 'Cloudinary credentials are not configured.' });
+      }
+
+      const { urls } = req.body;
+      if (!urls || !Array.isArray(urls)) {
+        return res.status(400).json({ error: 'URLs array is required' });
+      }
+
+      cloudinary.config({
+        cloud_name: process.env.VITE_CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+
+      const results: Record<string, string> = {};
+
+      for (const url of urls) {
+        if (!url) continue;
+        const match = url.match(/\/res\.cloudinary\.com\/[^\/]+\/(image|video|raw)\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/);
+        if (match) {
+          const resourceType = match[1];
+          const publicId = match[2];
+          
+          if (!publicId.startsWith('archived/')) {
+            const newPublicId = `archived/${publicId}`;
+            try {
+              const result = await cloudinary.uploader.rename(publicId, newPublicId, { 
+                resource_type: resourceType, 
+                overwrite: true,
+                invalidate: true
+              });
+              results[url] = result.secure_url;
+            } catch (err) {
+              console.error(`Failed to archive ${url}:`, err);
+            }
+          }
+        }
+      }
+      
+      res.json({ success: true, results });
+    } catch (error: any) {
+      console.error('Archive Error Details:', error);
+      res.status(500).json({ error: error.message || 'Archive failed' });
     }
   });
 
