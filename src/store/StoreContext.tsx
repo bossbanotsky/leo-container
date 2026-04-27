@@ -34,16 +34,26 @@ interface StoreContextType {
   updateLocalReference: (id: string, localRef: string) => Promise<{ success: boolean; error?: string }>;
   updateContainerStatus: (id: string, status: ContainerStatus) => Promise<void>;
   deleteContainer: (id: string) => Promise<void>;
+  addContainerNote: (containerId: string, text: string) => Promise<void>;
+  bulkUpdateContainerStatus: (ids: string[], status: ContainerStatus) => Promise<void>;
+  bulkDeleteContainers: (ids: string[]) => Promise<void>;
   createInvoice: (invoiceNumber: string) => Promise<{ success: boolean; error?: string }>;
   addContainersToInvoice: (invoiceId: string, containerIds: string[]) => Promise<void>;
   removeContainerFromInvoice: (invoiceId: string, containerId: string) => Promise<void>;
   deleteInvoice: (invoiceId: string) => Promise<void>;
+  bulkDeleteInvoices: (ids: string[]) => Promise<void>;
   markInvoiceBilled: (invoiceId: string) => Promise<void>;
+  bulkMarkInvoicesBilled: (ids: string[]) => Promise<void>;
   approveInvoice: (invoiceId: string) => Promise<void>;
+  bulkApproveInvoices: (ids: string[]) => Promise<void>;
   unapproveInvoice: (invoiceId: string) => Promise<void>;
+  bulkUnapproveInvoices: (ids: string[]) => Promise<void>;
   archiveInvoice: (invoiceId: string) => Promise<void>;
+  bulkArchiveInvoices: (ids: string[]) => Promise<void>;
   undoInvoiceBilled: (invoiceId: string) => Promise<void>;
   undoInvoiceArchived: (invoiceId: string) => Promise<void>;
+  bulkUndoInvoiceBilled: (ids: string[]) => Promise<void>;
+  bulkUndoInvoiceArchived: (ids: string[]) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | null>(null);
@@ -84,6 +94,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           history: data.history?.map((h: any) => ({
             ...h,
             timestamp: h.timestamp instanceof Timestamp ? h.timestamp.toMillis() : h.timestamp
+          })),
+          notes: data.notes?.map((n: any) => ({
+            ...n,
+            timestamp: n.timestamp instanceof Timestamp ? n.timestamp.toMillis() : n.timestamp
           }))
         } as Container;
       });
@@ -200,6 +214,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(error, OperationType.UPDATE, `containers/${id}`);
     }
   };
+  
+  const bulkUpdateContainerStatus = async (ids: string[], status: ContainerStatus) => {
+    try {
+      const batch = writeBatch(db);
+      const timestamp = new Date().getTime();
+      
+      ids.forEach(id => {
+        const container = state.containers.find(c => c.id === id);
+        if (!container || container.status === status) return;
+        
+        batch.update(doc(db, 'containers', id), {
+          status,
+          updatedAt: serverTimestamp(),
+          history: [...(container.history || []), { status, timestamp }]
+        });
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-update-containers');
+    }
+  };
 
   const deleteContainer = async (id: string) => {
     try {
@@ -218,6 +254,52 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       await batch.commit();
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `containers/${id}`);
+    }
+  };
+  
+  const bulkDeleteContainers = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      
+      ids.forEach(id => {
+        batch.delete(doc(db, 'containers', id));
+        
+        // Remove from any invoice
+        state.invoices.forEach(inv => {
+          if (inv.containerIds.includes(id)) {
+            batch.update(doc(db, 'invoices', inv.id), {
+              containerIds: inv.containerIds.filter(cid => cid !== id)
+            });
+          }
+        });
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-delete-containers');
+    }
+  };
+
+  const addContainerNote = async (containerId: string, text: string) => {
+    if (!user) return;
+    const container = state.containers.find(c => c.id === containerId);
+    if (!container) return;
+
+    const note = {
+      id: Math.random().toString(36).substring(2) + Date.now().toString(36),
+      text,
+      authorId: user.uid,
+      authorEmail: user.email || 'unknown',
+      timestamp: new Date().getTime()
+    };
+
+    try {
+      await updateDoc(doc(db, 'containers', containerId), {
+        notes: [...(container.notes || []), note],
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `containers/${containerId}`);
     }
   };
 
@@ -304,6 +386,29 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(error, OperationType.DELETE, `invoices/${invoiceId}`);
     }
   };
+  
+  const bulkDeleteInvoices = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      
+      ids.forEach(invoiceId => {
+        const invoice = state.invoices.find(i => i.id === invoiceId);
+        if (!invoice) return;
+        
+        batch.delete(doc(db, 'invoices', invoiceId));
+        invoice.containerIds.forEach(cid => {
+          batch.update(doc(db, 'containers', cid), {
+            status: 'Repaired',
+            updatedAt: serverTimestamp()
+          });
+        });
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-delete-invoices');
+    }
+  };
 
   const markInvoiceBilled = async (invoiceId: string) => {
     try {
@@ -328,6 +433,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(error, OperationType.UPDATE, `invoices/${invoiceId}`);
     }
   };
+  
+  const bulkMarkInvoicesBilled = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      const timestamp = serverTimestamp();
+      
+      ids.forEach(invoiceId => {
+        const invoice = state.invoices.find(i => i.id === invoiceId);
+        if (!invoice) return;
+        
+        batch.update(doc(db, 'invoices', invoiceId), {
+          status: 'Billed',
+          billedAt: timestamp
+        });
+        
+        invoice.containerIds.forEach(cid => {
+          batch.update(doc(db, 'containers', cid), {
+            status: 'Billed',
+            updatedAt: timestamp
+          });
+        });
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-mark-billed');
+    }
+  };
 
   const approveInvoice = async (invoiceId: string) => {
     try {
@@ -339,6 +472,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(error, OperationType.UPDATE, `invoices/${invoiceId}`);
     }
   };
+  
+  const bulkApproveInvoices = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      ids.forEach(id => {
+        batch.update(doc(db, 'invoices', id), {
+          status: 'Approved',
+          updatedAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-approve-invoices');
+    }
+  };
 
   const unapproveInvoice = async (invoiceId: string) => {
     try {
@@ -348,6 +496,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `invoices/${invoiceId}`);
+    }
+  };
+  
+  const bulkUnapproveInvoices = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      ids.forEach(id => {
+        batch.update(doc(db, 'invoices', id), {
+          status: 'Draft',
+          updatedAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-unapprove-invoices');
     }
   };
 
@@ -374,6 +537,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       handleFirestoreError(error, OperationType.UPDATE, `invoices/${invoiceId}`);
     }
   };
+  
+  const bulkArchiveInvoices = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      const timestamp = serverTimestamp();
+      
+      ids.forEach(invoiceId => {
+        const invoice = state.invoices.find(i => i.id === invoiceId);
+        if (!invoice) return;
+        
+        batch.update(doc(db, 'invoices', invoiceId), {
+          status: 'Archived',
+          archivedAt: timestamp
+        });
+        
+        invoice.containerIds.forEach(cid => {
+          batch.update(doc(db, 'containers', cid), {
+            status: 'Archived',
+            updatedAt: timestamp
+          });
+        });
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-archive-invoices');
+    }
+  };
 
   const undoInvoiceBilled = async (invoiceId: string) => {
     try {
@@ -396,6 +587,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       await batch.commit();
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `invoices/${invoiceId}`);
+    }
+  };
+
+  const bulkUndoInvoiceBilled = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      const timestamp = serverTimestamp();
+      
+      ids.forEach(invoiceId => {
+        const invoice = state.invoices.find(i => i.id === invoiceId);
+        if (!invoice) return;
+        
+        batch.update(doc(db, 'invoices', invoiceId), {
+          status: 'Approved',
+          billedAt: null
+        });
+        
+        invoice.containerIds.forEach(cid => {
+          batch.update(doc(db, 'containers', cid), {
+            status: 'Billing',
+            updatedAt: timestamp
+          });
+        });
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-undo-billed');
     }
   };
 
@@ -424,6 +643,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const bulkUndoInvoiceArchived = async (ids: string[]) => {
+    try {
+      const batch = writeBatch(db);
+      const timestamp = serverTimestamp();
+      
+      ids.forEach(invoiceId => {
+        const invoice = state.invoices.find(i => i.id === invoiceId);
+        if (!invoice) return;
+        
+        batch.update(doc(db, 'invoices', invoiceId), {
+          status: 'Billed',
+          archivedAt: null,
+          billedAt: timestamp
+        });
+        
+        invoice.containerIds.forEach(cid => {
+          batch.update(doc(db, 'containers', cid), {
+            status: 'Billed',
+            updatedAt: timestamp
+          });
+        });
+      });
+      
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bulk-undo-archive');
+    }
+  };
+
   const value = {
     state,
     user,
@@ -433,17 +681,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     addContainer,
     updateLocalReference,
     updateContainerStatus,
+    bulkUpdateContainerStatus,
     deleteContainer,
+    bulkDeleteContainers,
+    addContainerNote,
     createInvoice,
     addContainersToInvoice,
     removeContainerFromInvoice,
     deleteInvoice,
+    bulkDeleteInvoices,
     markInvoiceBilled,
+    bulkMarkInvoicesBilled,
     approveInvoice,
+    bulkApproveInvoices,
     unapproveInvoice,
+    bulkUnapproveInvoices,
     archiveInvoice,
+    bulkArchiveInvoices,
     undoInvoiceBilled,
-    undoInvoiceArchived
+    undoInvoiceArchived,
+    bulkUndoInvoiceBilled,
+    bulkUndoInvoiceArchived
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

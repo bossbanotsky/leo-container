@@ -20,6 +20,19 @@
               "timestamp": { "type": "string", "format": "date-time" }
             }
           }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "text": { "type": "string" },
+              "authorId": { "type": "string" },
+              "authorEmail": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
         }
       },
       "required": ["number", "type", "status", "createdAt"]

@@ -6,6 +6,14 @@ export interface ContainerHistory {
   timestamp: number;
 }
 
+export interface Note {
+  id: string;
+  text: string;
+  authorId: string;
+  authorEmail: string;
+  timestamp: number;
+}
+
 export interface Container {
   id: string;
   number: string;
@@ -15,6 +23,7 @@ export interface Container {
   createdAt: number;
   updatedAt: number;
   history?: ContainerHistory[];
+  notes?: Note[];
 }
 
 export type InvoiceStatus = 'Draft' | 'Approved' | 'Billed' | 'Archived';

@@ -13,22 +13,25 @@ import {
   Wrench, 
   CheckCircle, 
   X,
-  History
+  History,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { ContainerDetailsModal } from '../components/ContainerDetailsModal';
-import { Container } from '../types';
+import { Container, ContainerStatus } from '../types';
 
 export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'Repaired', onTabChange?: (tab: 'Active' | 'Repairing' | 'Repaired') => void }> = ({ 
   initialTab = 'Active',
   onTabChange: parentOnTabChange
 }) => {
-  const { state, addContainer, updateContainerStatus, deleteContainer, updateLocalReference } = useStore();
+  const { state, addContainer, updateContainerStatus, deleteContainer, updateLocalReference, bulkUpdateContainerStatus, bulkDeleteContainers } = useStore();
   const [tab, setTab] = useState<'Active' | 'Repairing' | 'Repaired'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [viewingContainerDetails, setViewingContainerDetails] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
   const [formType, setFormType] = useState<'Local' | 'Foreign'>('Local');
   const [formNumber, setFormNumber] = useState('');
@@ -41,6 +44,7 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
 
   const handleTabChange = (t: 'Active' | 'Repairing' | 'Repaired') => {
     setTab(t);
+    setSelectedIds([]);
     parentOnTabChange?.(t);
   };
 
@@ -52,6 +56,33 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
       c.localReference?.toLowerCase().includes(searchQuery.toLowerCase())
     ).sort((a, b) => b.updatedAt - a.updatedAt);
   }, [filteredContainers, searchQuery]);
+
+  const toggleSelect = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === displayedContainers.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(displayedContainers.map(c => c.id));
+    }
+  };
+
+  const handleBulkStatusUpdate = async (newStatus: ContainerStatus) => {
+    await bulkUpdateContainerStatus(selectedIds, newStatus);
+    setSelectedIds([]);
+  };
+
+  const handleBulkDelete = async () => {
+    if (window.confirm(`Delete ${selectedIds.length} containers?`)) {
+      await bulkDeleteContainers(selectedIds);
+      setSelectedIds([]);
+    }
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,8 +174,8 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
       </div>
 
       {/* Search */}
-      <div className="px-6 mb-4 group">
-        <div className="relative">
+      <div className="px-6 mb-4 flex gap-2">
+        <div className="flex-1 relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-laser-indigo transition-colors" size={16} />
           <input 
             type="text" 
@@ -154,6 +185,19 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
             className="w-full bg-carbon-800 border-2 border-white/20 rounded-2xl pl-12 pr-4 py-4 text-[11px] font-mono font-black text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-laser-indigo transition-all shadow-2xl tracking-widest uppercase"
           />
         </div>
+        {displayedContainers.length > 0 && (
+          <button 
+            onClick={toggleSelectAll}
+            className={cn(
+              "p-4 rounded-2xl border-2 transition-all flex items-center justify-center min-w-[56px] shadow-2xl",
+              selectedIds.length === displayedContainers.length && selectedIds.length > 0
+                ? "bg-laser-indigo border-laser-indigo text-white"
+                : "bg-carbon-800 border-white/20 text-slate-300"
+            )}
+          >
+            {selectedIds.length === displayedContainers.length && selectedIds.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
+          </button>
+        )}
       </div>
 
       {/* List */}
@@ -175,11 +219,21 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="bg-carbon-800 border-2 border-white/10 rounded-[2rem] overflow-hidden shadow-2xl relative group hover:border-laser-indigo/40 transition-all"
+                onClick={() => toggleSelect(c.id)}
+                className={cn(
+                  "bg-carbon-800 border-2 rounded-[2rem] overflow-hidden shadow-2xl relative group transition-all cursor-pointer",
+                  selectedIds.includes(c.id) ? "border-laser-indigo ring-2 ring-laser-indigo/20" : "border-white/10 hover:border-laser-indigo/40"
+                )}
               >
                 <div className="p-5 flex justify-between items-start">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
+                      <div className={cn(
+                        "w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all",
+                        selectedIds.includes(c.id) ? "bg-laser-indigo border-laser-indigo text-white" : "border-white/20 text-transparent"
+                      )}>
+                        <CheckSquare size={12} />
+                      </div>
                       <span className={cn(
                         "text-[8px] font-black px-2 py-0.5 rounded-full border-2 uppercase tracking-widest",
                         c.type === 'Local' ? "border-sky-500/50 text-sky-200 bg-sky-500/20" : "border-emerald-500/50 text-emerald-200 bg-emerald-500/20"
@@ -218,7 +272,7 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
                       </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-3">
+                  <div className="flex flex-col items-end gap-3" onClick={e => e.stopPropagation()}>
                     <div className="flex space-x-1">
                       <button 
                         onClick={() => setViewingContainerDetails(c.id)}
@@ -236,7 +290,7 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
                   </div>
                 </div>
 
-                <div className="px-5 py-4 bg-white/5 border-t border-white/20 flex justify-between items-center">
+                <div className="px-5 py-4 bg-white/5 border-t border-white/20 flex justify-between items-center" onClick={e => e.stopPropagation()}>
                   <div className="flex flex-col">
                     <span className="text-[8px] font-black text-slate-200 uppercase tracking-widest">Entry Timestamp</span>
                     <span className="text-[10px] font-black text-white">
@@ -282,6 +336,65 @@ export const ContainersPage: React.FC<{ initialTab?: 'Active' | 'Repairing' | 'R
           )}
         </AnimatePresence>
       </div>
+
+      {/* Floating Bulk Actions Toolbar */}
+      <AnimatePresence>
+        {selectedIds.length > 0 && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-24 left-6 right-6 z-[60]"
+          >
+            <div className="bg-carbon-900 border-2 border-laser-indigo rounded-[2rem] p-4 flex items-center justify-between shadow-[0_20px_50px_rgba(99,102,241,0.3)] backdrop-blur-xl">
+              <div className="flex flex-col ml-4">
+                <span className="text-[10px] font-black text-laser-indigo uppercase tracking-[0.2em]">Operations Active</span>
+                <span className="text-sm font-display font-black text-white uppercase tracking-tight">{selectedIds.length} Units Selected</span>
+              </div>
+              
+              <div className="flex gap-2">
+                <button 
+                  onClick={handleBulkDelete}
+                  className="p-3 bg-rose-600/20 text-rose-500 hover:bg-rose-600 hover:text-white rounded-xl border border-rose-500/30 transition-all"
+                  title="Remove Selected"
+                >
+                  <Trash2 size={20} />
+                </button>
+                {tab === 'Active' && (
+                  <button 
+                    onClick={() => handleBulkStatusUpdate('Repairing')}
+                    className="px-6 py-3 bg-indigo-600 text-white text-[10px] font-black rounded-xl hover:bg-indigo-500 transition-all uppercase tracking-widest flex items-center gap-2"
+                  >
+                    Repair <Wrench size={14} />
+                  </button>
+                )}
+                {tab === 'Repairing' && (
+                  <button 
+                    onClick={() => handleBulkStatusUpdate('Repaired')}
+                    className="px-6 py-3 bg-lime-500 text-black text-[10px] font-black rounded-xl hover:bg-lime-400 transition-all uppercase tracking-widest flex items-center gap-2"
+                  >
+                    Release <CheckCircle size={14} />
+                  </button>
+                )}
+                {tab === 'Repaired' && (
+                  <button 
+                    onClick={() => handleBulkStatusUpdate('Repairing')}
+                    className="px-6 py-3 bg-white/10 text-white text-[10px] font-black rounded-xl border border-white/20 hover:bg-white/20 transition-all uppercase tracking-widest flex items-center gap-2"
+                  >
+                    Reschedule <History size={14} />
+                  </button>
+                )}
+                <button 
+                  onClick={() => setSelectedIds([])}
+                  className="p-3 bg-white/5 text-slate-400 hover:text-white rounded-xl border border-white/10 transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Refined Modals */}
       <AnimatePresence>

@@ -35,8 +35,8 @@ service cloud.firestore {
       allow update: if isSignedIn()
         && isValidContainer(incoming())
         && (
-          // Action: Basic Update (e.g. status, localReference)
-          incoming().diff(existing()).affectedKeys().hasAny(['status', 'localReference', 'updatedAt', 'history'])
+          // Action: Basic Update (e.g. status, localReference, notes)
+          incoming().diff(existing()).affectedKeys().hasAny(['status', 'localReference', 'updatedAt', 'history', 'notes'])
           && incoming().createdAt == existing().createdAt
           && incoming().number == existing().number
         );
@@ -51,7 +51,8 @@ service cloud.firestore {
           && (data.get('localReference', null) == null || data.localReference is string)
           && data.createdAt is timestamp
           && (data.get('updatedAt', null) == null || data.updatedAt is timestamp)
-          && (data.get('history', null) == null || (data.history is list && data.history.size() <= 100));
+          && (data.get('history', null) == null || (data.history is list && data.history.size() <= 100))
+          && (data.get('notes', null) == null || (data.notes is list && data.notes.size() <= 200));
       }
     }
 
